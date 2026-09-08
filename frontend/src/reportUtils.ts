@@ -67,11 +67,9 @@ export function progressValue(status: AppStatus) {
   return 100;
 }
 
-export function normalizedProvider(report: Report): "github" | "gitlab" {
-  const provider = report.repository.provider;
-  if (provider === "gitlab" || provider === "gitLab") return "gitlab";
-  if (provider === "github" || provider === "gitHub") return "github";
-  return report.repository.htmlUrl.includes("gitlab.com/") ? "gitlab" : "github";
+export function normalizedProvider(report: Report): "github" {
+  void report;
+  return "github";
 }
 
 export function sortRows(rows: LanguageReport[], key: SortKey, dir: "asc" | "desc") {

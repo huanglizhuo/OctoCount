@@ -23,7 +23,7 @@ export function BadgeBuilder({ repoUrl, refName, report }: { repoUrl: string; re
     : parseGitHubRepo(repoUrl);
   const effectiveRef = report?.refName || refName.trim();
   const badgeUrl = repoPath ? buildBadgeUrl(repoPath.owner, repoPath.repo, effectiveRef, badgeType, language) : "";
-  const frontendUrl = repoPath ? buildPublicReportUrl(repoPath.owner, repoPath.repo, effectiveRef, "github") : window.location.origin;
+  const frontendUrl = repoPath ? buildPublicReportUrl(repoPath.owner, repoPath.repo, effectiveRef) : window.location.origin;
   const markdown = badgeUrl ? `[![OctoCounts](${badgeUrl})](${frontendUrl})` : "";
 
   return (
@@ -144,11 +144,9 @@ export function parsePublicRepo(value: string) {
   }
 }
 
-export function buildPublicReportUrl(owner: string, repo: string, ref: string, provider: "github" | "gitlab" = "github") {
-  const ownerPath = provider === "gitlab"
-    ? owner.split("/").map(encodeURIComponent).join("/")
-    : encodeURIComponent(owner);
-  const base = `${window.location.origin}/${provider}/${ownerPath}/${encodeURIComponent(repo)}`;
+export function buildPublicReportUrl(owner: string, repo: string, ref: string) {
+  const ownerPath = encodeURIComponent(owner);
+  const base = `${window.location.origin}/github/${ownerPath}/${encodeURIComponent(repo)}`;
   if (!ref.trim()) return base;
   const marker = looksLikeCommit(ref) ? "commit" : "tree";
   return `${base}/${marker}/${encodeRefPath(ref)}`;
@@ -162,7 +160,7 @@ function looksLikeCommit(ref: string) {
   return /^[a-f0-9]{7,40}$/i.test(ref.trim());
 }
 
-export type EmbedProvider = "github" | "gitlab";
+export type EmbedProvider = "github";
 
 export function buildEmbedUrl(provider: EmbedProvider, owner: string, repo: string) {
   const ownerPath = owner.split("/").map(encodeURIComponent).join("/");

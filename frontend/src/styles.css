@@ -1976,6 +1976,9 @@ body.embed-mode::before {
   width: 230px;
   height: 230px;
   margin: 0 auto;
+  /* Center-number font sizes key off the ring size (cqw), not the viewport:
+     the widest non-compact value ("99,999") must fit inside the hole. */
+  container-type: inline-size;
 }
 
 .donut-wrap svg {
@@ -1992,7 +1995,10 @@ body.embed-mode::before {
 
 .donut-center {
   position: absolute;
-  inset: 30%;
+  /* The SVG hole is r=0.58, i.e. 58% of the ring width; 22% keeps the text
+     box inside it instead of the old 30% (40% box) that clipped wide numbers
+     against the ring. */
+  inset: 22%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2004,9 +2010,14 @@ body.embed-mode::before {
 
 .donut-center strong {
   max-width: 100%;
-  font-size: clamp(24px, 14vw, 36px);
+  /* 13cqw fits "99,999" (6 mono glyphs = 3.6em) inside the 56%-wide center
+     box on every ring size; the old 14vw grew with the viewport and pushed
+     wide numbers over the ring. overflow:hidden makes the ellipsis the
+     last-resort guard instead of overlap. */
+  font-size: clamp(20px, 13cqw, 36px);
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

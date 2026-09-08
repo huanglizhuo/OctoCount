@@ -211,7 +211,6 @@ function pollingInterval(elapsedMs: number) {
 }
 
 function normalizedProvider(provider: Report["repository"]["provider"], fallbackUrl: string) {
-  if (provider === "gitlab" || provider === "gitLab") return "gitlab";
   if (provider === "github" || provider === "gitHub") return "github";
   return providerFromRepoUrl(fallbackUrl);
 }

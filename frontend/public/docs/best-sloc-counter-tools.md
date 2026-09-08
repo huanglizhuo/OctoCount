@@ -73,11 +73,11 @@ It depends on where the code lives and what you need. For a quick check of a pub
 
 ## What is the difference between tokei, cloc, and scc?
 
-All three are command-line tools that count files, code lines, comment lines, and blank lines per language. tokei and scc are written in compiled languages (Rust and Go) and are significantly faster than cloc, which is written in Perl. cloc has the longest track record and the widest language and file-format support, built up over two decades. tokei and scc cover the vast majority of common languages and are fast enough that the speed difference rarely matters except on very large monorepos.
+All three are command-line tools that count files, code lines, comment lines, and blank lines per language. tokei and scc are written in compiled languages (Rust and Go); cloc is written in Perl. cloc has the longest track record and the widest language and file-format support, built up over two decades, while tokei and scc cover the vast majority of common languages.
 
 ## Can I count lines of code without cloning a GitHub repository?
 
-Yes. OctoCounts downloads a repository's source archive for a specific commit instead of performing a full git clone, which is faster and requires no local installation. GitHub's language bar also requires no cloning, though it only reports byte-based percentages rather than line counts. Local tools such as tokei, cloc, and scc require either cloning the repository or already having a local copy to scan.
+Yes. OctoCounts downloads a repository's source archive for a specific commit instead of performing a full git clone, so it transfers only the current source tree and requires no local installation. GitHub's language bar also requires no cloning, though it only reports byte-based percentages rather than line counts. Local tools such as tokei, cloc, and scc require either cloning the repository or already having a local copy to scan.
 
 ## Is SLOC count a good measure of code quality?
 

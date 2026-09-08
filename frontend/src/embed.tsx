@@ -27,9 +27,7 @@ export function parseEmbedPath(pathname: string): EmbedRoute | null {
   const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
   if (segments[0] !== "embed") return null;
   const provider = segments[1];
-  if (provider !== "github" && provider !== "gitlab") return null;
-  // GitLab owners can be nested groups, so everything between the provider and
-  // the last segment is the owner path — same convention as buildPublicReportUrl.
+  if (provider !== "github") return null;
   if (segments.length < 4) return null;
   const owner = segments.slice(2, -1).join("/");
   const repo = segments[segments.length - 1];
@@ -67,7 +65,7 @@ export function EmbedPage() {
   const reportUrl = report
     ? `${window.location.origin}${report.publicPath}`
     : route
-      ? buildPublicReportUrl(route.owner, route.repo, "", route.provider)
+      ? buildPublicReportUrl(route.owner, route.repo, "")
       : window.location.origin;
 
   useEffect(() => {

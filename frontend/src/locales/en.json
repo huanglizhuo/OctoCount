@@ -247,7 +247,8 @@
     "installEdge": "Install from Microsoft Edge Add-ons",
     "installFirefox": "Download for Firefox (GitHub release)",
     "viewSource": "View source",
-    "previewAlt": "OctoCounts browser extension showing SLOC results on a GitHub repository"
+    "previewAlt": "OctoCounts browser extension showing SLOC results on a GitHub repository",
+    "learnMore": "Learn more about the extension"
   },
   "useCases": {
     "title": "Use Cases",
@@ -307,7 +308,8 @@
     "faq": "FAQ",
     "badges": "Badges",
     "builtBy": "Built by <1>huanglizhuo</1>, indie developer",
-    "copyright": "(c) 2026"
+    "copyright": "(c) 2026",
+    "extension": "Extension"
   },
   "theme": {
     "switchToDay": "Switch to day mode",
@@ -319,7 +321,7 @@
     "refNotFound": "The requested branch, tag, or commit was not found.",
     "refNotFoundWithDefault": "The requested branch, tag, or commit was not found. This repository's default branch is \"{{branch}}\" — clear the ref field to use it.",
     "rateLimited": "GitHub API rate limit was reached.",
-    "githubUnavailable": "The repository host is currently unavailable — the problem is on GitHub/GitLab's side, not this service. Check their status page and try again in a few minutes.",
+    "githubUnavailable": "The repository host is currently unavailable — the problem is on GitHub's side, not this service. Check the GitHub status page and try again in a few minutes.",
     "tooLarge": "This repository is too large to analyze right now.",
     "notFound": "Repository was not found or is not public.",
     "emptyRepository": "This repository has no commits to count.",
@@ -607,7 +609,8 @@
     "subtitle": "Open a focused tool with this repository and ref already selected.",
     "compare": "Compare this ref",
     "diff": "Diff this ref",
-    "badges": "Create badges"
+    "badges": "Create badges",
+    "copyCitation": "Copy citation"
   },
   "developerTools": {
     "title": "Developer tools",
@@ -638,5 +641,17 @@
         "text": "Use analyze, jobs, reports, badge, SEO, and stats endpoints directly."
       }
     }
+  },
+  "extensionLanding": {
+    "installTitle": "Install OctoCounts",
+    "installSubtitle": "Free, no account, no API token",
+    "stepsTitle": "Install in three steps",
+    "step1": "Install OctoCounts from the Chrome Web Store, Microsoft Edge Add-ons, or Firefox Add-ons — one click, no account.",
+    "step2": "Open any public GitHub repository page in your browser.",
+    "step3": "The SLOC card appears in the repository sidebar automatically. Click it to open the full panel with the per-language line breakdown.",
+    "permissionsTitle": "Permissions and data handling",
+    "permissions": "The extension reads the public GitHub repository page you are viewing to detect the owner and repository name, and runs the count against public data through the OctoCounts API. It does not request GitHub account access, needs no API token, works on public repositories only, and collects no personal data. Results are cached locally and by repository and ref so repeat visits load instantly.",
+    "scopeTitle": "Supported repositories",
+    "scope": "Public GitHub repositories. Private repositories and source-code uploads are not supported; to count private code, run tokei locally."
   }
 }

@@ -49,7 +49,7 @@ object(expression:$expression)@include(if:$hasRef){__typename oid}}}";
 
 #[derive(Debug, Error)]
 pub enum GitHubError {
-    #[error("only public github.com and gitlab.com repository URLs are supported")]
+    #[error("only public github.com repository URLs are supported")]
     InvalidUrl,
     #[error("repository was not found or is not public")]
     NotFound,
@@ -792,8 +792,6 @@ impl GitHubClient {
         let mut normalized = input.trim().to_string();
         if normalized.starts_with("git@github.com:") {
             normalized = normalized.replacen("git@github.com:", "https://github.com/", 1);
-        } else if normalized.starts_with("git@gitlab.com:") {
-            normalized = normalized.replacen("git@gitlab.com:", "https://gitlab.com/", 1);
         }
 
         let url = Url::parse(&normalized).map_err(|_| GitHubError::InvalidUrl)?;
@@ -824,20 +822,8 @@ impl GitHubClient {
                     repo,
                 })
             }
-            "gitlab.com" => {
-                let repo = segments.last().cloned().ok_or(GitHubError::InvalidUrl)?;
-                let owner = segments[..segments.len() - 1].join("/");
-                let path = segments.join("/");
-                if owner.is_empty() || repo.is_empty() {
-                    return Err(GitHubError::InvalidUrl);
-                }
-                Ok(RepoTarget {
-                    provider: RepositoryProvider::GitLab,
-                    owner,
-                    repo,
-                    path,
-                })
-            }
+            // GitLab support was removed from the public product (2026-09-08):
+            // gitlab.com URLs fall through to InvalidUrl like any other host.
             _ => Err(GitHubError::InvalidUrl),
         }
     }
@@ -1697,12 +1683,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_gitlab_urls() {
-        let (owner, repo) =
-            GitHubClient::parse_repo_owner_name("https://gitlab.com/group/sub/project.git")
-                .unwrap();
-        assert_eq!(owner, "group/sub");
-        assert_eq!(repo, "project");
+    fn rejects_gitlab_urls() {
+        // GitLab support removed from the public product: gitlab.com is now
+        // an unsupported host, in both https and git@ forms.
+        assert!(GitHubClient::parse_repo_owner_name("https://gitlab.com/group/sub/project.git").is_err());
+        assert!(GitHubClient::parse_repo_owner_name("git@gitlab.com:group/sub/project.git").is_err());
     }
 
     #[test]

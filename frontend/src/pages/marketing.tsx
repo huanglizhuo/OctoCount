@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { fetchGrowthStats, fetchJson } from "../api";
@@ -7,6 +7,7 @@ import { initAnalytics } from "../analytics";
 import { CompareRepos, DiffRefs } from "../compare";
 import { BadgeBuilder, BadgeWall, EmbedBuilder } from "../badges";
 import { Topbar } from "../Topbar";
+import { StoreLink } from "../StoreLink";
 import { formatCompactNumber, formatNumber } from "../reportUtils";
 import i18n from "../i18n";
 import type { GrowthRepositoryStat, GrowthStats } from "../types";
@@ -16,7 +17,7 @@ import type { GrowthRepositoryStat, GrowthStats } from "../types";
 // bundle does not carry them.
 
 export type SeoReportSummary = {
-  provider: "github" | "gitlab";
+  provider: "github";
   owner: string;
   repo: string;
   repoFullName: string;
@@ -134,7 +135,7 @@ function MarketingShell({ children }: { children: React.ReactNode }) {
         <footer>
           <span>{t("growth.footerTagline")}</span>
           <span>
-            <a href="/stats">{t("growth.nav.stats.label")}</a> &middot; <a href="/recent">{t("growth.nav.recent.label")}</a> &middot; <a href="/popular">{t("growth.nav.popular.label")}</a> &middot; <a href="/trending">{t("growth.nav.trending.label")}</a> &middot; <a href="/hall-of-monoliths">{t("growth.nav.hall.label")}</a> &middot; <a href="/badges">{t("footer.badges")}</a> &middot; <a href="/privacy">{t("footer.privacy")}</a>
+            <a href="/stats">{t("growth.nav.stats.label")}</a> &middot; <a href="/recent">{t("growth.nav.recent.label")}</a> &middot; <a href="/popular">{t("growth.nav.popular.label")}</a> &middot; <a href="/trending">{t("growth.nav.trending.label")}</a> &middot; <a href="/hall-of-monoliths">{t("growth.nav.hall.label")}</a> &middot; <a href="/extension">{t("footer.extension")}</a> &middot; <a href="/badges">{t("footer.badges")}</a> &middot; <a href="/privacy">{t("footer.privacy")}</a>
           </span>
         </footer>
       </main>
@@ -281,6 +282,229 @@ export function ComparePage() {
         <p>{t("compare.help")}</p>
       </section>
       <CompareRepos showHelp={false} />
+    </MarketingShell>
+  );
+}
+
+// The curated /compare/:slug contract (SG-01): the Pages Function builds one
+// view model and renders three representations from it — the SSR HTML body,
+// this React page, and the markdown twin. Numbers arrive as pre-formatted
+// display strings so a browser locale can never disagree with the SSR body.
+type CuratedCompareSide = {
+  repoFullName: string;
+  publicPath: string;
+  refName: string;
+  commitSha: string;
+  generatedAt: string;
+};
+
+type CuratedCompareModel = {
+  state: "ready" | "missing" | "unavailable";
+  slug: string;
+  name: string;
+  canonical: string;
+  heading: string;
+  interactiveHref: string;
+  left?: CuratedCompareSide;
+  right?: CuratedCompareSide;
+  rows?: Array<{ label: string; left: string; right: string }>;
+  definitionText?: string;
+  summaryText?: string;
+  languageMixText?: string;
+  methodologyText?: string;
+  disclaimerText?: string;
+  faq?: Array<{ question: string; answer: string }>;
+  relatedLinks?: Array<{ href: string; label: string }>;
+  editorial?: {
+    scope: string;
+    insights: string[];
+    caution: string;
+    sources: Array<{ label: string; url: string }>;
+    verifiedAt: string;
+  } | null;
+};
+
+function readCuratedCompareModel(): CuratedCompareModel | null {
+  const node = document.getElementById("octocounts-compare-data");
+  if (!node?.textContent) return null;
+  try {
+    const model = JSON.parse(node.textContent) as CuratedCompareModel;
+    return model && typeof model.slug === "string" && typeof model.heading === "string" ? model : null;
+  } catch {
+    return null;
+  }
+}
+
+export function CuratedComparePage() {
+  const { t } = useTranslation();
+  const model = useMemo(readCuratedCompareModel, []);
+  // Unknown slugs (404 in production) and JS-only previews have no model;
+  // they degrade to the generic tool, exactly what /compare shows.
+  if (!model) return <ComparePage />;
+  const notice =
+    model.state === "unavailable"
+      ? "This comparison is temporarily unavailable. Please try again in a moment, or run a fresh comparison with the tool below."
+      : "A cached OctoCounts report is not available for both repositories yet. Run the analyses with the tool below, then revisit this page.";
+  return (
+    <MarketingShell>
+      <section className="growth-hero tool-hero" aria-label={model.heading}>
+        <span className="chart-tag">{t("compare.subtitle")}</span>
+        <h1>{model.heading}</h1>
+        <p>{model.state === "ready" ? model.definitionText : notice}</p>
+      </section>
+      {model.state === "ready" ? <CuratedCompareBody model={model} /> : null}
+      <section className="curated-compare-tool" aria-label={t("compare.title")}>
+        <div className="section-h">
+          <h2>{t("compare.title")}</h2>
+          <span className="sub">{t("compare.help")}</span>
+        </div>
+        <CompareRepos showHelp={false} />
+      </section>
+    </MarketingShell>
+  );
+}
+
+function CuratedCompareBody({ model }: { model: CuratedCompareModel }) {
+  if (!model.left || !model.right || !model.rows) return null;
+  // The methodology sentence embeds the same /docs/methodology link the SSR
+  // body carries; split the plain string on the shared anchor phrase.
+  const methodology = model.methodologyText ?? "";
+  const [methodologyLead, methodologyTail] = methodology.split("See the counting methodology");
+  return (
+    <section className="curated-compare-body" aria-label="Comparison results">
+      {model.summaryText ? <p>{model.summaryText}</p> : null}
+      <table>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th><a href={model.left.publicPath}>{model.left.repoFullName}</a></th>
+            <th><a href={model.right.publicPath}>{model.right.repoFullName}</a></th>
+          </tr>
+        </thead>
+        <tbody>
+          {model.rows.map((row) => (
+            <tr key={row.label}>
+              <td>{row.label}</td>
+              <td>{row.left}</td>
+              <td>{row.right}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {model.languageMixText ? <p>{model.languageMixText}</p> : null}
+      {model.editorial ? (
+        <section aria-label="About this comparison">
+          <h2>About this comparison</h2>
+          <p>{model.editorial.scope}</p>
+          {model.editorial.insights.map((insight) => (
+            <p key={insight}>{insight}</p>
+          ))}
+          <p><em>{model.editorial.caution}</em></p>
+          <p>
+            Sources:{" "}
+            {model.editorial.sources.map((source, index) => (
+              <span key={source.url}>
+                {index > 0 ? " · " : ""}
+                <a href={source.url} rel="noreferrer">{source.label}</a>
+              </span>
+            ))}
+            . Statements verified {model.editorial.verifiedAt}.
+          </p>
+        </section>
+      ) : null}
+      {methodology ? (
+        <p>
+          {methodologyLead}See the <a href="/docs/methodology">counting methodology</a>
+          {methodologyTail}
+        </p>
+      ) : null}
+      <p>Evidence and next steps:</p>
+      <ul>
+        <li><a href={model.left.publicPath}>{model.left.repoFullName} SLOC report</a></li>
+        <li><a href={model.right.publicPath}>{model.right.repoFullName} SLOC report</a></li>
+        <li>
+          <a href={model.interactiveHref}>
+            Compare {model.left.repoFullName} and {model.right.repoFullName} interactively
+          </a>
+        </li>
+      </ul>
+      {model.disclaimerText ? <p>{model.disclaimerText}</p> : null}
+      {model.faq?.length ? (
+        <div className="how">
+          <h2>Compare FAQ</h2>
+          {model.faq.map((item) => (
+            <div className="step" key={item.question}>
+              <h3>{item.question}</h3>
+              {item.answer.split(/\n\n+/).map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {model.relatedLinks?.length ? (
+        <nav aria-label="Related OctoCounts pages">
+          <ul>
+            {model.relatedLinks.map((link) => (
+              <li key={link.href}><a href={link.href}>{link.label}</a></li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
+    </section>
+  );
+}
+
+// /extension landing page (SG-03). Static marketing copy that mirrors the
+// facts the Pages Function server-renders (functions/[[path]].js
+// EXTENSION_CONTENT); the product-facts checker keeps the store URLs in both
+// files identical. Install links reuse the site-wide StoreLink analytics with
+// placement=extension_page.
+export function ExtensionPage() {
+  const { t } = useTranslation();
+  return (
+    <MarketingShell>
+      <section className="growth-hero tool-hero" aria-label="See GitHub code statistics in your browser">
+        <span className="chart-tag">{t("growth.nav.stats.kicker")}</span>
+        <h1>See GitHub code statistics in your browser</h1>
+        <p>
+          OctoCounts is a free browser extension that adds a SLOC (source lines of code) card to public
+          GitHub repository pages. The card shows the repository's total line count at a glance; clicking it
+          opens a full panel with files, code lines, comment lines, blank lines, and a per-language breakdown —
+          the same counts the OctoCounts web app produces with tokei, pinned to an exact commit.
+        </p>
+      </section>
+      <section aria-label="Install OctoCounts">
+        <div className="section-h">
+          <h2>{t("extensionLanding.installTitle")}</h2>
+          <span className="sub">{t("extensionLanding.installSubtitle")}</span>
+        </div>
+        <div className="hero-paths">
+          <StoreLink store="chrome" placement="extension_page" className="btn install-btn hero-install-primary" size={15}>
+            {t("hero.addToChrome")}
+          </StoreLink>
+          <StoreLink store="edge" placement="extension_page" className="copybtn install-btn secondary-install" size={14}>
+            {t("hero.installEdge")}
+          </StoreLink>
+          <StoreLink store="firefox" placement="extension_page" className="copybtn install-btn secondary-install" size={14}>
+            {t("hero.installFirefox")}
+          </StoreLink>
+        </div>
+      </section>
+      <section aria-label="How the extension works">
+        <div className="section-h">
+          <h2>{t("extensionLanding.stepsTitle")}</h2>
+        </div>
+        <ol>
+          <li>{t("extensionLanding.step1")}</li>
+          <li>{t("extensionLanding.step2")}</li>
+          <li>{t("extensionLanding.step3")}</li>
+        </ol>
+        <h2>{t("extensionLanding.permissionsTitle")}</h2>
+        <p>{t("extensionLanding.permissions")}</p>
+        <h2>{t("extensionLanding.scopeTitle")}</h2>
+        <p>{t("extensionLanding.scope")}</p>
+      </section>
     </MarketingShell>
   );
 }

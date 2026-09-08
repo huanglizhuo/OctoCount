@@ -6,8 +6,14 @@ User-agent: *
 Content-Signal: search=yes,ai-input=yes,ai-train=no
 Allow: /
 
-# AI search crawlers: allow search/index crawlers that can cite OctoCounts.
-# GPTBot is explicitly allowed (including training use) for ChatGPT visibility.
+# Retrieval-time crawlers (OAI-SearchBot, ChatGPT-User, PerplexityBot,
+# ClaudeBot, Applebot, ...) ground answers and search results that can cite
+# OctoCounts. Allowing them is about visibility in AI answers.
+#
+# GPTBot and CCBot below are TRAINING crawlers; their permission is a separate
+# decision from search visibility — OpenAI search access is governed by
+# OAI-SearchBot/ChatGPT-User above, not by GPTBot. See
+# docs/ai-crawling-policy.md for the full matrix.
 User-agent: GPTBot
 Content-Signal: search=yes,ai-input=yes,ai-train=yes
 Allow: /
@@ -27,9 +33,8 @@ Allow: /
 User-agent: PerplexityBot
 Allow: /
 
-# Google-Extended (Gemini grounding/training), CCBot (Common Crawl), and
-# Applebot are all allowed: visibility and citation in answer engines is
-# worth more than keeping the corpus out of training data.
+# Google-Extended (Gemini grounding/training) and CCBot (Common Crawl) are
+# training-use crawlers, allowed as a deliberate, separate choice.
 User-agent: Google-Extended
 Allow: /
 

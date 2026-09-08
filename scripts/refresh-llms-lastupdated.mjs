@@ -1,62 +1,16 @@
 #!/usr/bin/env node
-// Refresh the `Last-Updated:` header in llms.txt / llms-full.txt so the
-// freshness signal answer engines read never goes stale. Run by CI on every
-// push to main that touches frontend content; exits 0 with no changes when
-// the header already matches today.
+// Regenerate the curated-comparison section of llms.txt from
+// functions/compare-registry.js (SG-07). Run by CI on pushes that touch the
+// frontend; exits 0 with no changes when the section already matches.
+//
+// This script deliberately no longer rewrites ANY date. Last-Updated headers,
+// sitemap lastmod values, docs dateModified, and homepage freshness lines are
+// per-page records of real content changes, maintained by hand in
+// frontend/content/content-manifest.json (mirrored in functions/[[path]].js
+// and public/sitemap.xml; seo.test.mjs asserts the sync). Blanket-refreshing
+// them to "today" on every push is exactly the behavior SG-07 removed.
 import { readFile, writeFile } from "node:fs/promises";
 
-const FILES = [
-  new URL("../frontend/public/llms.txt", import.meta.url),
-  new URL("../frontend/public/llms-full.txt", import.meta.url),
-];
-// The edge function's sitemap lastmod for static/curated entries and the
-// static fallback sitemap.xml would otherwise freeze at whatever date they
-// were last edited by hand, going stale while llms.txt stays fresh.
-const EXTRA = [
-  {
-    file: new URL("../frontend/functions/[[path]].js", import.meta.url),
-    apply: (text, today) =>
-      text.replace(/const STATIC_SITEMAP_LASTMOD = "\d{4}-\d{2}-\d{2}";/, `const STATIC_SITEMAP_LASTMOD = "${today}";`),
-    label: "STATIC_SITEMAP_LASTMOD",
-  },
-  {
-    file: new URL("../frontend/public/sitemap.xml", import.meta.url),
-    apply: (text, today) => text.replace(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/g, `<lastmod>${today}</lastmod>`),
-    label: "sitemap.xml lastmod",
-  },
-  // The static docs pages carry a TechArticle dateModified that would
-  // otherwise drift from the sitemap lastmod for the same URLs; both now come
-  // from this one run.
-  ...["api", "github-sloc-counter", "methodology", "glossary", "faq", "octocounts-vs-cloc", "github-language-bar-alternative", "best-sloc-counter-tools"].map((slug) => ({
-    file: new URL(`../frontend/public/docs/${slug}.html`, import.meta.url),
-    apply: (text, today) => text.replace(/"dateModified": "\d{4}-\d{2}-\d{2}"/, `"dateModified": "${today}"`),
-    label: `docs/${slug}.html dateModified`,
-  })),
-  // Homepage freshness signal: the WebSite dateModified in JSON-LD, the
-  // noscript <time> line, and the visible React freshness line (via the
-  // siteLastUpdated constant) all need to move together or they drift and
-  // contradict each other on the rendered page.
-  {
-    file: new URL("../frontend/index.html", import.meta.url),
-    apply: (text, today) =>
-      text
-        .replace(/"dateModified": "\d{4}-\d{2}-\d{2}"/, `"dateModified": "${today}"`)
-        .replace(
-          /<time datetime="\d{4}-\d{2}-\d{2}">Updated [^<]*\.<\/time>/,
-          `<time datetime="${today}">Updated ${new Date(today).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}.</time>`
-        ),
-    label: "index.html homepage dateModified + noscript freshness",
-  },
-  {
-    file: new URL("../frontend/src/constants.ts", import.meta.url),
-    apply: (text, today) => text.replace(/export const siteLastUpdated = "\d{4}-\d{2}-\d{2}";/, `export const siteLastUpdated = "${today}";`),
-    label: "constants.ts siteLastUpdated",
-  },
-];
-
-// llms.txt lists one line per curated comparison page so answer engines can
-// discover "X vs Y lines of code" targets. Generated from the same registry
-// the edge function routes by, between marker comments.
 async function refreshCompareSection() {
   const { COMPARE_REGISTRY } = await import("../frontend/functions/compare-registry.js");
   const file = new URL("../frontend/public/llms.txt", import.meta.url);
@@ -77,28 +31,5 @@ async function refreshCompareSection() {
   return 0;
 }
 
-const today = new Date().toISOString().slice(0, 10);
-let changed = 0;
-
-for (const file of FILES) {
-  const before = await readFile(file, "utf8");
-  const after = before.replace(/^Last-Updated: .*$/m, `Last-Updated: ${today}`);
-  if (after !== before) {
-    await writeFile(file, after);
-    changed += 1;
-  }
-}
-
-for (const extra of EXTRA) {
-  const before = await readFile(extra.file, "utf8");
-  const after = extra.apply(before, today);
-  if (after !== before) {
-    await writeFile(extra.file, after);
-    changed += 1;
-    console.log(`refreshed ${extra.label} to ${today}`);
-  }
-}
-
-changed += await refreshCompareSection();
-
-console.log(`llms last-updated: ${changed ? `refreshed ${changed} file(s) to ${today}` : `already current (${today})`}`);
+const changed = await refreshCompareSection();
+console.log(changed ? "llms.txt compare section regenerated" : "llms.txt compare section already current");

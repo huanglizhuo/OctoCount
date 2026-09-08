@@ -37,7 +37,6 @@ Default ignored folders include `.cache`, `.git`, `.next`, `build`, `dist`, `nod
 | Private repositories | Not supported |
 | Source-code uploads | Not supported |
 | GitHub account access | Not requested |
-| GitLab repositories | Not supported in the public product |
 
 For private repositories, run tokei locally.
 
@@ -49,6 +48,7 @@ For private repositories, run tokei locally.
 - Daily GitHub Trending reports: https://octocounts.com/trending
 - Hall of Monoliths: https://octocounts.com/hall-of-monoliths
 - README badge builder: https://octocounts.com/badges
+- Browser extension landing page: https://octocounts.com/extension
 - Curated comparisons (server-rendered "X vs Y" SLOC pages, e.g. React vs Vue): https://octocounts.com/compare/react-vs-vue
 - Methodology: https://octocounts.com/docs/methodology
 - SLOC guide: https://octocounts.com/docs/github-sloc-counter

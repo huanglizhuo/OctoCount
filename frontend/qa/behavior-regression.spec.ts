@@ -214,3 +214,133 @@ test.describe("analysis behavior regressions", () => {
     await expect(page.locator(".repo-history-data tbody tr")).toHaveCount(2);
   });
 });
+
+test.describe("curated comparison pages (SG-01)", () => {
+  // The dev/preview server cannot run Pages Functions, so the SSR payloads the
+  // edge injects (#octocounts-compare-data / #octocounts-compare-prefill) are
+  // installed before the app boots; the node SEO tests cover the server side
+  // and assert the injected model equals the SSR body.
+  const COMPARE_MODEL = {
+    state: "ready",
+    slug: "react-vs-vue",
+    name: "React vs Vue",
+    canonical: "https://octocounts.com/compare/react-vs-vue",
+    heading: "React vs Vue: source lines of code compared",
+    interactiveHref: "/compare?left=https%3A%2F%2Fgithub.com%2Ffacebook%2Freact&right=https%3A%2F%2Fgithub.com%2Fvuejs%2Fcore",
+    left: { repoFullName: "facebook/react", publicPath: "/github/facebook/react", refName: "main", commitSha: "aaaaaa1111112222bbbbbb333333cccccc444444", generatedAt: "2026-07-20T00:00:00Z" },
+    right: { repoFullName: "vuejs/core", publicPath: "/github/vuejs/core", refName: "main", commitSha: "dddddd5555556666eeeeee777777ffffff888888", generatedAt: "2026-07-21T00:00:00Z" },
+    rows: [
+      { label: "Files", left: "4,821", right: "2,311" },
+      { label: "Total lines", left: "210,301", right: "120,114" },
+      { label: "Code lines", left: "152,488", right: "89,302" },
+      { label: "Comment lines", left: "31,220", right: "15,220" },
+      { label: "Blank lines", left: "26,593", right: "15,592" },
+      { label: "Languages counted", left: "5", right: "5" },
+    ],
+    definitionText: "This page compares the source lines of code (SLOC) of facebook/react and vuejs/core using cached OctoCounts reports. Code size is not code quality: a larger count only means more source material, not a better or worse project.",
+    summaryText: "As of 2026-07-20, facebook/react contains 210,301 total lines (152,488 code) across 4,821 files, while vuejs/core contains 120,114 total lines (89,302 code) across 2,311 files as of 2026-07-21. facebook/react is about 1.7x the size of vuejs/core by code lines. Code size is not code quality: a larger count only means more source material, not a better or worse project.",
+    languageMixText: "Top languages in facebook/react: JavaScript (54.2% of code), TypeScript (23.1% of code), HTML (7.9% of code).",
+    methodologyText: "Methodology: both counts come from cached OctoCounts reports generated with tokei. facebook/react was counted at ref main (commit aaaaaa111111) on 2026-07-20; vuejs/core was counted at ref main (commit dddddd555555) on 2026-07-21. See the counting methodology for ignored directories and analysis options.",
+    disclaimerText: "Note: code size is not code quality. OctoCounts only reports reproducible line counts and makes no claim that either project is better.",
+    faq: [
+      { question: "Which has more lines of code, facebook/react or vuejs/core?", answer: "facebook/react has more code: 152,488 code lines versus 89,302 for vuejs/core, about 1.7x as much, based on cached OctoCounts reports as of 2026-07-21." },
+    ],
+    relatedLinks: [
+      { href: "/compare", label: "Interactive repository comparison" },
+      { href: "/docs/methodology", label: "Counting methodology" },
+    ],
+  };
+
+  const PREFILL = { left: "https://github.com/facebook/react", right: "https://github.com/vuejs/core" };
+
+  // Deterministic injection: intercept the document request and insert the
+  // SSR payload scripts into the served HTML, exactly where the Pages
+  // Function puts them. (addInitScript + head append races the app boot.)
+  async function serveComparePage(page: import("@playwright/test").Page, pathname: string, payloads: Record<string, unknown>) {
+    await page.route(`${BASE_URL}${pathname}`, async (route) => {
+      const response = await route.fetch();
+      const scripts = Object.entries(payloads)
+        .map(([id, payload]) => `<script type="application/json" id="${id}">${JSON.stringify(payload).replace(/</g, "\\u003c")}</script>`)
+        .join("\n");
+      await route.fulfill({ response, body: (await response.text()).replace("</head>", `${scripts}\n</head>`) });
+    });
+  }
+
+  test("the cached comparison stays visible after JS boots, without clicking Compare", async ({ page }) => {
+    await serveComparePage(page, "/compare/react-vs-vue", { "octocounts-compare-data": COMPARE_MODEL, "octocounts-compare-prefill": PREFILL });
+    await page.goto(`${BASE_URL}/compare/react-vs-vue`);
+    await expect(page.getByRole("heading", { level: 1, name: "React vs Vue: source lines of code compared" })).toBeVisible();
+    const body = page.locator(".curated-compare-body");
+    await expect(body).toBeVisible();
+    // Core numbers from the view model, immediately readable.
+    await expect(body).toContainText("152,488");
+    await expect(body).toContainText("89,302");
+    await expect(body.getByRole("table")).toContainText("Code lines");
+    await expect(body).toContainText("Which has more lines of code, facebook/react or vuejs/core?");
+    await expect(body.getByRole("link", { name: "counting methodology", exact: true })).toHaveAttribute("href", "/docs/methodology");
+    await expect(body.getByRole("link", { name: "facebook/react SLOC report" })).toHaveAttribute("href", "/github/facebook/react");
+  });
+
+  test("the interactive tool stays available and prefilled with the same pair", async ({ page }) => {
+    await serveComparePage(page, "/compare/react-vs-vue", { "octocounts-compare-data": COMPARE_MODEL, "octocounts-compare-prefill": PREFILL });
+    await page.goto(`${BASE_URL}/compare/react-vs-vue`);
+    const tool = page.locator(".curated-compare-tool");
+    await expect(tool).toBeVisible();
+    await expect(tool.locator("input").first()).toHaveValue("https://github.com/facebook/react");
+    await expect(tool.locator("input").nth(2)).toHaveValue("https://github.com/vuejs/core");
+  });
+
+  test("the missing-report state keeps the page identity and explains itself", async ({ page }) => {
+    await serveComparePage(page, "/compare/react-vs-vue", { "octocounts-compare-data": { state: "missing", slug: "react-vs-vue", name: "React vs Vue", canonical: "https://octocounts.com/compare/react-vs-vue", heading: "React vs Vue: source lines of code compared", interactiveHref: "/compare/react-vs-vue" } });
+    await page.goto(`${BASE_URL}/compare/react-vs-vue`);
+    await expect(page.getByRole("heading", { level: 1, name: "React vs Vue: source lines of code compared" })).toBeVisible();
+    await expect(page.locator(".curated-compare-body")).toHaveCount(0);
+    await expect(page.locator(".curated-compare-tool")).toBeVisible();
+  });
+
+  test("unknown compare slugs without SSR data degrade to the generic tool", async ({ page }) => {
+    await page.goto(`${BASE_URL}/compare/not-a-real-pair`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.locator(".curated-compare-body")).toHaveCount(0);
+    await expect(page.locator("form.compare-form")).toBeVisible();
+  });
+});
+
+test.describe("extension landing page (SG-03)", () => {
+  test("renders install entry points and steps client-side", async ({ page }) => {
+    await page.goto(`${BASE_URL}/extension`);
+    await expect(page.getByRole("heading", { level: 1, name: "See GitHub code statistics in your browser" })).toBeVisible();
+    const install = page.locator(".hero-paths a.install-btn");
+    await expect(install).toHaveCount(3);
+    await expect(install.nth(0)).toHaveAttribute("href", /chromewebstore\.google\.com/);
+    await expect(install.nth(1)).toHaveAttribute("href", /microsoftedge\.microsoft\.com/);
+    await expect(install.nth(2)).toHaveAttribute("href", /addons\.mozilla\.org/);
+    await expect(page.getByRole("heading", { name: "Install in three steps" })).toBeVisible();
+  });
+});
+
+test.describe("language share donut", () => {
+  test("the center code-line number stays inside the ring hole", async ({ page }) => {
+    // 99,999 is the widest non-compact value ("99,999" = 6 mono glyphs); with
+    // the old viewport-keyed font size it rendered wider than the SVG hole
+    // (r=0.58) and overlapped the ring segments.
+    await page.route("**/api/analyze", async (route) => {
+      const request = route.request().postDataJSON() as { repoUrl: string };
+      await route.fulfill({ json: { kind: "cached", reportId: "donut", report: reportFor(request.repoUrl, 99_999) } });
+    });
+    await page.goto(BASE_URL);
+    await page.locator("#repo-url").fill("https://github.com/example/wide-count");
+    await page.getByRole("button", { name: "Analyze" }).click();
+    const donut = page.locator(".donut-wrap");
+    await expect(donut).toBeVisible();
+    await expect(page.locator(".donut-center strong")).toHaveText("99,999");
+    const inside = await page.evaluate(() => {
+      const wrap = document.querySelector(".donut-wrap");
+      const strong = document.querySelector(".donut-center strong");
+      if (!wrap || !strong) return null;
+      return { ring: wrap.getBoundingClientRect().width, number: strong.getBoundingClientRect().width };
+    });
+    expect(inside).not.toBeNull();
+    expect(inside!.number).toBeLessThanOrEqual(inside!.ring * 0.58 + 0.5);
+  });
+});

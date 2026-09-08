@@ -12,7 +12,7 @@ OctoCounts is a free source lines of code (SLOC) counter for public GitHub repos
 
 SLOC stands for Source Lines of Code. It is a software metric used to measure the size of a program by counting the lines in its source code. Unlike raw line count, SLOC distinguishes between code lines (actual instructions the compiler or interpreter processes), comment lines (documentation and explanations), and blank lines (whitespace). This breakdown matters because a 10,000-line file that is 40% comments tells a different story than one that is 95% code.
 
-Developers use SLOC to estimate project complexity, compare codebases when evaluating dependencies, scope billing and audit work, and communicate repository size to stakeholders who may not read code. OctoCounts reports SLOC at two levels: per programming language and as aggregate totals across the entire repository. The underlying counter is tokei, which is significantly faster than alternatives like cloc or sloccount because it is written in Rust and uses parallel file processing.
+Developers use SLOC to estimate project complexity, compare codebases when evaluating dependencies, scope billing and audit work, and communicate repository size to stakeholders who may not read code. OctoCounts reports SLOC at two levels: per programming language and as aggregate totals across the entire repository. The underlying counter is tokei, an open-source line counter written in Rust that processes files in parallel.
 
 ### How do I count lines of code in a GitHub repository?
 

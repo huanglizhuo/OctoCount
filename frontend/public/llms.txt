@@ -63,6 +63,7 @@ GET /badge/:owner/:repo/commit/:sha
 - Daily GitHub Trending reports: https://octocounts.com/trending
 - Hall of Monoliths: https://octocounts.com/hall-of-monoliths
 - README badge builder: https://octocounts.com/badges
+- Browser extension landing page: https://octocounts.com/extension
 - Curated comparisons: server-rendered "X vs Y" SLOC pages, one per pair listed below.
 - Methodology: https://octocounts.com/docs/methodology
 - SLOC guide: https://octocounts.com/docs/github-sloc-counter

@@ -237,7 +237,8 @@
     "installEdge": "从 Microsoft Edge 加载项安装",
     "installFirefox": "下载 Firefox 版（GitHub Release）",
     "viewSource": "查看源码",
-    "previewAlt": "OctoCounts 浏览器扩展在 GitHub 仓库上显示 SLOC 结果"
+    "previewAlt": "OctoCounts 浏览器扩展在 GitHub 仓库上显示 SLOC 结果",
+    "learnMore": "了解更多"
   },
   "useCases": {
     "title": "使用场景",
@@ -297,7 +298,8 @@
     "faq": "常见问题",
     "badges": "徽章",
     "builtBy": "由 <1>huanglizhuo</1> 构建，独立开发者",
-    "copyright": "(c) 2026"
+    "copyright": "(c) 2026",
+    "extension": "浏览器扩展"
   },
   "theme": {
     "switchToDay": "切换到日间模式",
@@ -309,7 +311,7 @@
     "refNotFound": "未找到请求的分支、标签或提交。",
     "refNotFoundWithDefault": "未找到请求的分支、标签或提交。该仓库的默认分支是“{{branch}}”——清空分支字段即可使用它。",
     "rateLimited": "已达到 GitHub API 限流。",
-    "githubUnavailable": "代码托管服务当前故障中——问题出在 GitHub/GitLab 一侧，不是本服务的问题。可查看其状态页，几分钟后重试。",
+    "githubUnavailable": "代码托管服务当前故障中——问题出在 GitHub 一侧，不是本服务的问题。可查看 GitHub 状态页，几分钟后重试。",
     "tooLarge": "该仓库当前过大，无法分析。",
     "notFound": "未找到仓库，或仓库不是公开的。",
     "emptyRepository": "该仓库还没有可统计的提交。",
@@ -608,7 +610,8 @@
     "subtitle": "在已选定此仓库和引用的工具中继续。",
     "compare": "比较此引用",
     "diff": "比较此引用的差异",
-    "badges": "创建徽章"
+    "badges": "创建徽章",
+    "copyCitation": "复制引用"
   },
   "developerTools": {
     "title": "开发者工具",
@@ -639,5 +642,17 @@
         "text": "直接使用分析、任务、报告、徽章、SEO 和统计端点。"
       }
     }
+  },
+  "extensionLanding": {
+    "installTitle": "安装 OctoCounts",
+    "installSubtitle": "免费，无需账号，无需 API 令牌",
+    "stepsTitle": "三步安装",
+    "step1": "从 Chrome 网上应用店、Microsoft Edge 加载项或 Firefox 附加组件一键安装 OctoCounts，无需账号。",
+    "step2": "在浏览器中打开任意公开的 GitHub 仓库页面。",
+    "step3": "SLOC 卡片自动出现在仓库侧边栏。点击即可打开完整面板，查看按语言划分的行数明细。",
+    "permissionsTitle": "权限与数据处理",
+    "permissions": "扩展只读取你正在浏览的公开 GitHub 仓库页面以识别仓库和所有者，并通过 OctoCounts API 对公开数据计数。它不请求 GitHub 账号权限、无需 API 令牌、只支持公开仓库、不收集个人数据。结果按仓库和 ref 本地缓存，重复访问即时加载。",
+    "scopeTitle": "支持的仓库",
+    "scope": "公开 GitHub 仓库。不支持私有仓库和源码上传；如需统计私有代码，请在本地运行 tokei。"
   }
 }

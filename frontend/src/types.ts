@@ -29,7 +29,7 @@ export type LanguageReport = {
   children: LanguageReport[];
 };
 
-export type RepositoryProvider = "github" | "gitlab" | "gitHub" | "gitLab";
+export type RepositoryProvider = "github" | "gitHub";
 export type AnalysisSource = "web" | "extension" | "github_action" | "cli" | "mcp" | "api" | "seed" | "github_trending" | "sloc_backfill" | "unknown";
 
 export type Report = {

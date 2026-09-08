@@ -138,6 +138,17 @@ test("built homepage schema uses the packaged extension version", async () => {
   assert.doesNotMatch(html, /__EXTENSION_VERSION__/);
 });
 
+test("donut center number cannot overlap the ring", async () => {
+  const styles = await readFile(new URL("src/styles.css", ROOT), "utf8");
+  // The center number sizes from the ring (container query), never the
+  // viewport, and clips instead of painting over the ring segments.
+  const wrap = styles.match(/\.donut-wrap\s*\{[^}]*\}/)?.[0] ?? "";
+  assert.match(wrap, /container-type:\s*inline-size/);
+  const center = styles.match(/\.donut-center strong\s*\{[^}]*\}/)?.[0] ?? "";
+  assert.match(center, /font-size:\s*clamp\(20px, 13cqw, 36px\)/);
+  assert.match(center, /overflow:\s*hidden/);
+});
+
 test("performance assets avoid blocked inline fonts and oversized previews", async () => {
   const html = await readFile(new URL("index.html", ROOT), "utf8");
   const styles = await readFile(new URL("src/styles.css", ROOT), "utf8");
@@ -159,7 +170,8 @@ test("performance assets avoid blocked inline fonts and oversized previews", asy
   assert.match(extensionSection, /loading="lazy" width="1280" height="800"/);
   assert.match(topbar, /octocounts-logo-96\.webp/);
   assert.match(badges, /width="180" height="20"/);
-  assert.match(main, /path\.startsWith\("\/github\/"\) \|\| path\.startsWith\("\/gitlab\/"\)/);
+  assert.match(main, /path\.startsWith\("\/github\/"\)/);
+  assert.doesNotMatch(main, /gitlab/i);
   assert.match(main, /if \(!isPublicReportPath\) \{[\s\S]*?applyPageMetadata\(\{[\s\S]*?return;/);
   // Charts render eagerly (no DeferredContent) by design: they're the primary
   // above-the-fold content once a report loads, not a below-the-fold extra.
@@ -641,6 +653,30 @@ test("curated comparison SSR renders balanced citable content", async () => {
       right: `https://github.com/${rightName}`,
     });
 
+    // SG-01: the client page renders from #octocounts-compare-data, so every
+    // fact a JS reader sees must equal the SSR body. Assert the view model
+    // against the HTML instead of trusting both to stay in sync.
+    const dataScript = html.match(/<script type="application\/json" id="octocounts-compare-data">([^<]*)<\/script>/);
+    assert.ok(dataScript, `${slug} compare data script`);
+    const model = JSON.parse(dataScript[1]);
+    assert.equal(model.state, "ready", `${slug} model state`);
+    assert.equal(model.slug, slug, `${slug} model slug`);
+    assert.equal(model.heading, `${name}: source lines of code compared`, `${slug} model heading`);
+    assert.equal(model.canonical, `https://octocounts.com/compare/${slug}`, `${slug} model canonical`);
+    assert.deepEqual(model.prefill, JSON.parse(prefill[1]), `${slug} model prefill matches embedded prefill`);
+    assert.ok(html.includes(model.summaryText), `${slug} model summary appears in SSR body`);
+    assert.ok(html.includes(model.languageMixText), `${slug} model language mix appears in SSR body`);
+    assert.ok(html.includes(model.methodologyText.slice(0, 80)), `${slug} model methodology appears in SSR body`);
+    assert.ok(html.includes(model.definitionText), `${slug} model definition appears in SSR body`);
+    assert.ok(html.includes(model.disclaimerText), `${slug} model disclaimer appears in SSR body`);
+    for (const row of model.rows) {
+      assert.ok(html.includes(`<td>${row.label}</td><td>${row.left}</td><td>${row.right}</td>`), `${slug} model row "${row.label}" appears in SSR table`);
+    }
+    for (const item of model.faq) {
+      assert.ok(html.includes(item.question), `${slug} model FAQ question appears in SSR body`);
+      assert.ok(html.includes(item.answer), `${slug} model FAQ answer appears in SSR body`);
+    }
+
     // JSON-LD parses and stays consistent with the page facts.
     const jsonLd = html.match(/<script type="application\/ld\+json">([^<]*)<\/script>/);
     assert.ok(jsonLd, `${slug} JSON-LD script`);
@@ -650,6 +686,7 @@ test("curated comparison SSR renders balanced citable content", async () => {
     assert.deepEqual(dataset.isBasedOn, [left.canonicalUrl, right.canonicalUrl]);
     assert.equal(dataset.url, `https://octocounts.com/compare/${slug}`);
     assert.equal(dataset.dateModified, right.generatedAt > left.generatedAt ? right.generatedAt : left.generatedAt);
+    assert.equal(dataset.dateModified, model.updatedAt, `${slug} model updatedAt matches JSON-LD dateModified`);
     assert.ok(graph.some((node) => node["@type"] === "BreadcrumbList"), `${slug} breadcrumbs`);
 
     // Compare FAQ: the question-shaped fan-out AI answer engines expect for
@@ -677,6 +714,35 @@ test("unknown curated comparison slugs fall through to static asset handling", a
   assert.equal(await response.text(), "not found");
 });
 
+test("curated comparison view model and markdown twin carry identical facts", async () => {
+  const restore = stubReportFetch(CURATED_FIXTURES);
+  try {
+    const [htmlResponse, mdResponse] = await Promise.all([
+      onRequest(await renderedContext("/compare/react-vs-vue")),
+      onRequest(await renderedContext("/compare/react-vs-vue.md")),
+    ]);
+    const html = await htmlResponse.text();
+    const md = await mdResponse.text();
+    const model = JSON.parse(html.match(/<script type="application\/json" id="octocounts-compare-data">([^<]*)<\/script>/)[1]);
+    // Every number and sentence the markdown twin states comes from the same
+    // view model the HTML page and the JS client render.
+    assert.ok(md.includes(model.summaryText), "markdown carries the model summary");
+    assert.ok(md.includes(model.languageMixText), "markdown carries the model language mix");
+    assert.ok(md.includes(model.disclaimerText), "markdown carries the model disclaimer");
+    for (const row of model.rows) {
+      assert.ok(md.includes(`| ${row.label} | ${row.left} | ${row.right} |`), `markdown row "${row.label}"`);
+    }
+    for (const item of model.faq) {
+      assert.ok(md.includes(`### ${item.question}`), `markdown FAQ question "${item.question}"`);
+      assert.ok(md.includes(item.answer), `markdown FAQ answer for "${item.question}"`);
+    }
+    assert.ok(md.includes(model.left.commitSha.slice(0, 12)), "markdown carries the left commit");
+    assert.ok(md.includes(model.right.commitSha.slice(0, 12)), "markdown carries the right commit");
+  } finally {
+    restore();
+  }
+});
+
 test("curated comparison serves a noindex fallback when a report is missing", async () => {
   const restore = stubReportFetch({ "facebook/react": CURATED_FIXTURES["facebook/react"] });
   let response;
@@ -693,6 +759,14 @@ test("curated comparison serves a noindex fallback when a report is missing", as
   assert.match(html, /not available for both repositories yet/);
   assert.equal((html.match(/<h1[ >]/g) ?? []).length, 1);
   assert.doesNotMatch(html, /type="application\/ld\+json"/);
+  // The client page keeps the same identity on the degraded state instead of
+  // swapping to the generic tool heading.
+  const dataScript = html.match(/<script type="application\/json" id="octocounts-compare-data">([^<]*)<\/script>/);
+  assert.ok(dataScript, "missing-state data script");
+  const model = JSON.parse(dataScript[1]);
+  assert.equal(model.state, "missing");
+  assert.equal(model.heading, "React vs Vue: source lines of code compared");
+  assert.equal(model.canonical, "https://octocounts.com/compare/react-vs-vue");
 });
 
 test("curated comparison answers 503 + no-store when a report fetch fails transiently", async () => {
@@ -725,6 +799,12 @@ test("curated comparison answers 503 + no-store when a report fetch fails transi
   assert.match(html, /<title>React vs Vue: source lines of code compared \| OctoCounts<\/title>/);
   assert.match(html, /<h1>React vs Vue: source lines of code compared<\/h1>/);
   assert.doesNotMatch(html, /<title>OctoCounts – GitHub SLOC Counter<\/title>/);
+  // Degraded-state identity for the JS client matches the 503 body.
+  const dataScript = html.match(/<script type="application\/json" id="octocounts-compare-data">([^<]*)<\/script>/);
+  assert.ok(dataScript, "unavailable-state data script");
+  const model = JSON.parse(dataScript[1]);
+  assert.equal(model.state, "unavailable");
+  assert.equal(model.heading, "React vs Vue: source lines of code compared");
 });
 
 test("curated comparison answers 503 + no-store when a report fetch throws", async () => {
@@ -988,16 +1068,20 @@ test("the trending page head advertises the RSS feed", async () => {
 });
 
 test("embed routes are frameable by any site, noindexed, and link to the report", async () => {
-  for (const path of ["/embed/github/octo-org/octo-repo", "/embed/gitlab/octo-group/sub/octo-repo"]) {
-    const response = await onRequest(await renderedContext(path));
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("x-frame-options"), null);
-    assert.match(response.headers.get("content-security-policy"), /frame-ancestors \*/);
-    const html = await response.text();
-    assert.match(html, /<meta name="robots" content="noindex,nofollow" \/>/);
-    const reportPath = path.replace(/^\/embed\//, "/");
-    assert.ok(html.includes(`<link rel="canonical" href="https://octocounts.com${reportPath}" />`));
-  }
+  const response = await onRequest(await renderedContext("/embed/github/octo-org/octo-repo"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-frame-options"), null);
+  assert.match(response.headers.get("content-security-policy"), /frame-ancestors \*/);
+  const html = await response.text();
+  assert.match(html, /<meta name="robots" content="noindex,nofollow" \/>/);
+  assert.ok(html.includes('<link rel="canonical" href="https://octocounts.com/github/octo-org/octo-repo" />'));
+
+  // GitLab support was removed: a /embed/gitlab/ path is no longer a function
+  // route and falls through to static asset handling (404 in production).
+  const gone = await renderedContext("/embed/gitlab/octo-group/octo-repo");
+  gone.env.ASSETS.fetch = async () => new Response("not found", { status: 404 });
+  const goneResponse = await onRequest(gone);
+  assert.equal(goneResponse.status, 404);
 });
 
 test("non-embed pages keep the locked-down frame headers", async () => {
@@ -1092,19 +1176,39 @@ test("stats SSR renders the full citable aggregates and Dataset datePublished", 
   assert.match(html, /"datePublished":"2026-07-10"/);
 });
 
-test("docs TechArticle dateModified stays in sync with the sitemap lastmod source", async () => {
+test("docs dateModified and sitemap lastmod follow the per-page content manifest", async () => {
+  const manifest = JSON.parse(await readFile(new URL("content/content-manifest.json", ROOT), "utf8"));
   const edge = await readFile(new URL("functions/[[path]].js", ROOT), "utf8");
-  const lastmod = edge.match(/const STATIC_SITEMAP_LASTMOD = "(\d{4}-\d{2}-\d{2})";/)?.[1];
-  assert.ok(lastmod, "STATIC_SITEMAP_LASTMOD exists");
-  const script = await readFile(new URL("../../scripts/refresh-llms-lastupdated.mjs", import.meta.url), "utf8");
-  // The refresh script rewrites each docs page's TechArticle dateModified from
-  // the same `today` it writes into STATIC_SITEMAP_LASTMOD.
-  assert.match(script, /public\/docs\/\$\{slug\}\.html/);
-  assert.match(script, /"dateModified": "\\d\{4\}/);
+  const staticSitemap = await readFile(new URL("public/sitemap.xml", ROOT), "utf8");
+
+  // The functions file's STATIC_SITEMAP_ENTRIES must mirror the manifest.
+  const entryRe = /\{ loc: "(https:\/\/octocounts\.com\/[^"]*)", lastmod: "(\d{4}-\d{2}-\d{2})" \}/g;
+  const entries = [...edge.matchAll(entryRe)].map((match) => [match[1], match[2]]);
+  assert.equal(entries.length, Object.keys(manifest.pages).length, "STATIC_SITEMAP_ENTRIES count matches manifest");
+  for (const [loc, lastmod] of entries) {
+    assert.equal(lastmod, manifest.pages[loc], `${loc} functions lastmod matches manifest`);
+  }
+
+  // The static fallback sitemap must carry the same per-URL dates.
+  for (const [loc, lastmod] of Object.entries(manifest.pages)) {
+    if (loc.endsWith("llms.txt") || loc.endsWith("llms-full.txt")) continue;
+    const block = staticSitemap.match(new RegExp(`<url><loc>${loc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}<\/loc><lastmod>([^<]+)<\/lastmod><\/url>`));
+    assert.ok(block, `${loc} present in static sitemap`);
+    assert.equal(block[1], lastmod, `${loc} static sitemap lastmod matches manifest`);
+  }
+
+  // Docs TechArticle dateModified follows the same per-page date.
   for (const [slug] of docs) {
     const html = await readFile(new URL(`public/docs/${slug}.html`, ROOT), "utf8");
-    assert.ok(html.includes(`"dateModified": "${lastmod}"`), `${slug} dateModified != STATIC_SITEMAP_LASTMOD`);
+    const expected = manifest.pages[`https://octocounts.com/docs/${slug}`];
+    assert.ok(html.includes(`"dateModified": "${expected}"`), `${slug} dateModified matches manifest (${expected})`);
   }
+
+  // The refresh workflow no longer rewrites dates on every push (SG-07):
+  // strip comment lines, then the remaining code must not touch any date.
+  const script = await readFile(new URL("../../scripts/refresh-llms-lastupdated.mjs", import.meta.url), "utf8");
+  const code = script.split("\n").filter((line) => !line.trimStart().startsWith("//")).join("\n");
+  assert.doesNotMatch(code, /STATIC_SITEMAP_LASTMOD|dateModified|siteLastUpdated|Last-Updated/);
 });
 
 function withUserAgent(context, userAgent) {
@@ -1480,6 +1584,98 @@ test("sitemaps list the docs glossary alongside the other docs", async () => {
       repositories: [],
     }));
     assert.match(await generated.text(), /<loc>https:\/\/octocounts\.com\/docs\/glossary<\/loc>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("extension landing page serves complete SSR content with real store links", async () => {
+  const response = await onRequest(await renderedContext("/extension"));
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.ok(html.includes("<title>OctoCounts GitHub Line Counter Extension for Chrome, Edge &amp; Firefox | OctoCounts</title>"));
+  assert.ok(html.includes('<link rel="canonical" href="https://octocounts.com/extension" />'));
+  assert.ok(html.includes("<h1>See GitHub code statistics in your browser</h1>"));
+  assert.equal((html.match(/<h1[ >]/g) ?? []).length, 1);
+  for (const store of ["chromewebstore.google.com", "microsoftedge.microsoft.com", "addons.mozilla.org"]) {
+    assert.ok(html.includes(store), `store link ${store}`);
+  }
+  // Visible facts only: no ratings or install counts anywhere in the schema.
+  const jsonLd = html.match(/<script type="application\/ld\+json">([^<]*)<\/script>/);
+  assert.doesNotMatch(jsonLd[1], /aggregateRating|ratingCount|userCount|installCount/i);
+  const graph = JSON.parse(jsonLd[1])["@graph"];
+  assert.ok(graph.some((node) => node["@type"] === "SoftwareApplication" && node.offers.price === "0"));
+  assert.ok(graph.some((node) => node["@type"] === "FAQPage"));
+  // Markdown twin carries the same install links.
+  const md = await (await onRequest(await renderedContext("/extension.md"))).text();
+  for (const store of ["chromewebstore.google.com", "microsoftedge.microsoft.com", "addons.mozilla.org"]) {
+    assert.ok(md.includes(store), `markdown store link ${store}`);
+  }
+});
+
+test("sitemap includes the extension landing page in both copies", async () => {
+  const staticSitemap = await readFile(new URL("public/sitemap.xml", ROOT), "utf8");
+  assert.ok(staticSitemap.includes("<loc>https://octocounts.com/extension</loc>"));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json([]);
+  try {
+    const generated = await (await onRequest(await renderedContext("/sitemap.xml", {
+      source: "https://github.com/trending", generatedAt: "2026-07-15T02:17:00Z", date: "2026-07-15", repositories: [],
+    }))).text();
+    assert.ok(generated.includes("<loc>https://octocounts.com/extension</loc>"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("editorial compare pages carry scoped, sourced explanations in every format", async () => {
+  const restore = stubReportFetch(CURATED_FIXTURES);
+  try {
+    const [htmlResponse, mdResponse] = await Promise.all([
+      onRequest(await renderedContext("/compare/react-vs-vue")),
+      onRequest(await renderedContext("/compare/react-vs-vue.md")),
+    ]);
+    const html = await htmlResponse.text();
+    const md = await mdResponse.text();
+    for (const [source, label] of [[html, "HTML"], [md, "markdown"]]) {
+      assert.ok(source.includes("About this comparison"), `${label} editorial heading`);
+      assert.ok(source.includes("facebook/react is a monorepo"), `${label} scope statement`);
+      assert.ok(source.includes("predominantly TypeScript"), `${label} data-supported insight`);
+      assert.ok(source.includes("Neither number predicts the size, performance, or quality"), `${label} caution`);
+      assert.ok(source.includes("https://github.com/facebook/react"), `${label} source link`);
+      assert.ok(source.includes("Statements verified 2026-09-08"), `${label} verification date`);
+    }
+    // The client view model carries the same editorial (SG-01 parity).
+    const model = JSON.parse(html.match(/<script type="application\/json" id="octocounts-compare-data">([^<]*)<\/script>/)[1]);
+    assert.equal(model.editorial.scope.includes("monorepo"), true);
+    assert.equal(model.editorial.insights.length >= 2, true);
+    // Pages without editorial are unchanged.
+    const plain = await (await onRequest(await renderedContext("/compare/vite-vs-webpack"))).text();
+    assert.ok(plain.includes("About this comparison") === false || plain.includes("vitejs/vite is the Vite core repository"));
+  } finally {
+    restore();
+  }
+});
+
+test("AI_MARKDOWN_UA=0 rolls the UA-derived markdown switch off without touching explicit .md", async () => {
+  const context = await renderedContext("/github/octo-org/octo-repo");
+  context.env.SEO_API_BASE = "https://api.test";
+  context.env.AI_MARKDOWN_UA = "0";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    provider: "github", owner: "octo-org", repo: "octo-repo", repoFullName: "octo-org/octo-repo",
+    htmlUrl: "https://github.com/octo-org/octo-repo", publicPath: "/github/octo-org/octo-repo",
+    canonicalUrl: "https://octocounts.com/github/octo-org/octo-repo", title: "t", description: "d", citation: "c",
+    generatedAt: "2026-07-01T00:00:00Z", refName: "main", commitSha: "a".repeat(40), tokeiVersion: "t", durationMs: 1,
+    total: { files: 1, lines: 2, code: 3, comments: 0, blanks: 0 }, languages: [], topLanguage: null,
+  });
+  try {
+    const bot = await onRequest(withUserAgent(context, "PerplexityBot/1.0"));
+    assert.match(bot.headers.get("content-type") ?? "", /^text\/html/);
+    const explicitContext = await renderedContext("/github/octo-org/octo-repo.md");
+    explicitContext.env.SEO_API_BASE = "https://api.test";
+    const explicit = await onRequest(withUserAgent(explicitContext, "PerplexityBot/1.0"));
+    assert.match(explicit.headers.get("content-type") ?? "", /^text\/markdown/);
   } finally {
     globalThis.fetch = originalFetch;
   }

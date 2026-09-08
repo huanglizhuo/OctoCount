@@ -38,3 +38,6 @@ yarn-error.log*
 # Local agent/tooling directories
 /.claude/
 /.impeccable/
+
+# Local Playwright overlay (system Chrome; machine-specific)
+/frontend/playwright.local.config.ts

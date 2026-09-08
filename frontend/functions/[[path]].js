@@ -1,30 +1,38 @@
 import { COMPARE_REGISTRY, findCuratedComparison } from "./compare-registry.js";
+import { COMPARE_EDITORIAL } from "./compare-editorial.js";
 
 const API_BASE = "https://api.octocounts.com";
 const BOOT_SCRIPT_HASH = "'sha256-WRZoCRpV9YaIG5sPOijC2jelInnwDvYw9BYBSfp3VQY='";
-const STATIC_SITEMAP_LASTMOD = "2026-09-08";
+// Per-URL content lastmod, mirroring frontend/content/content-manifest.json
+// (seo.test.mjs asserts the two stay in sync). A date moves ONLY when that
+// page's content really changes — never blanket-refresh all of them (SG-07).
 const STATIC_SITEMAP_ENTRIES = [
-  { loc: "https://octocounts.com/", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/stats", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/recent", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/popular", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/trending", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/hall-of-monoliths", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/badges", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/github-sloc-counter", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/api", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/methodology", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/glossary", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/faq", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/octocounts-vs-cloc", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/github-language-bar-alternative", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/docs/best-sloc-counter-tools", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/about", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/llms.txt", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/llms-full.txt", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/privacy", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/contact", lastmod: STATIC_SITEMAP_LASTMOD },
+  { loc: "https://octocounts.com/", lastmod: "2026-09-08" },
+  { loc: "https://octocounts.com/stats", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/recent", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/popular", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/trending", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/hall-of-monoliths", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/badges", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/extension", lastmod: "2026-09-08" },
+  { loc: "https://octocounts.com/docs/github-sloc-counter", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/docs/api", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/docs/methodology", lastmod: "2026-09-08" },
+  { loc: "https://octocounts.com/docs/glossary", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/docs/faq", lastmod: "2026-09-08" },
+  { loc: "https://octocounts.com/docs/octocounts-vs-cloc", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/docs/github-language-bar-alternative", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/docs/best-sloc-counter-tools", lastmod: "2026-09-08" },
+  { loc: "https://octocounts.com/about", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/llms.txt", lastmod: "2026-09-08" },
+  { loc: "https://octocounts.com/llms-full.txt", lastmod: "2026-09-08" },
+  { loc: "https://octocounts.com/privacy", lastmod: "2026-09-05" },
+  { loc: "https://octocounts.com/contact", lastmod: "2026-09-05" },
 ];
+// The homepage's own visible freshness line and the curated /compare/* pages
+// follow the manifest too.
+const HOME_CONTENT_LASTMOD = "2026-09-08";
+const COMPARE_CONTENT_LASTMOD = "2026-09-08";
 
 export async function onRequest(context) {
   const url = new URL(context.request.url);
@@ -62,7 +70,10 @@ export async function onRequest(context) {
   // (Googlebot, Bingbot, ...) are deliberately excluded — serving them
   // different content than users would be cloaking — and pure training
   // crawlers (GPTBot, CCBot, anthropic-ai) keep receiving HTML.
-  const aiMarkdown = isAiRetrievalBot(context.request.headers.get("user-agent"));
+  // Rollback switch (SG-08): set AI_MARKDOWN_UA=0 in the Pages environment to
+  // stop serving markdown by user agent while keeping explicit .md/?format=md
+  // URLs working. Defaults on; see docs/ai-crawling-policy.md.
+  const aiMarkdown = context.env.AI_MARKDOWN_UA !== "0" && isAiRetrievalBot(context.request.headers.get("user-agent"));
 
   const legacyDoc = LEGACY_DOC_REDIRECTS[url.pathname];
   if (legacyDoc) {
@@ -132,10 +143,14 @@ export async function onRequest(context) {
     return badgesPageResponse(context);
   }
 
+  if (routePath === "/extension") {
+    return extensionPageResponse(context, { markdown: markdownRequested || aiMarkdown, uaOnly: aiMarkdown && !markdownRequested });
+  }
+
   // Embeddable iframe cards: served from the same SPA bundle but with
   // frame-ancestors relaxed (only for /embed/) and noindex — embeds are for
   // humans on third-party pages, not for crawlers.
-  if (parts[0] === "embed" && (parts[1] === "github" || parts[1] === "gitlab") && parts.length >= 4) {
+  if (parts[0] === "embed" && parts[1] === "github" && parts.length >= 4) {
     return embedPageResponse(context, parts);
   }
 
@@ -824,6 +839,173 @@ async function badgesPageResponse(context) {
   );
 }
 
+/// Extension landing page (SG-03). One content object feeds the SSR body, the
+/// client React page, and the markdown twin so the three cannot drift. Facts
+/// only: store links, what the extension does, permissions, and scope — no
+/// ratings, user counts, or other figures this page cannot verify.
+const EXTENSION_STORES = [
+  { store: "chrome", label: "Chrome Web Store", url: "https://chromewebstore.google.com/detail/octocounts-%E2%80%94-github-sloc/gkgjpjdnaklagijmekoolhcpebmoldbj" },
+  { store: "edge", label: "Microsoft Edge Add-ons", url: "https://microsoftedge.microsoft.com/addons/detail/octocounts-%E2%80%93-github-sloc-/ehifednhpbpekkadndaipnngopbhpoim" },
+  { store: "firefox", label: "Firefox Add-ons", url: "https://addons.mozilla.org/en-US/firefox/addon/octocounts-github-sloc/" },
+];
+
+const EXTENSION_CONTENT = {
+  title: "OctoCounts GitHub Line Counter Extension for Chrome, Edge & Firefox | OctoCounts",
+  heading: "See GitHub code statistics in your browser",
+  description:
+    "Install the OctoCounts browser extension for Chrome, Edge, or Firefox to see source lines of code — files, code, comments, blanks, and per-language totals — directly in the GitHub repository sidebar.",
+  intro:
+    "OctoCounts is a free browser extension that adds a SLOC (source lines of code) card to public GitHub repository pages. The card shows the repository's total line count at a glance; clicking it opens a full panel with files, code lines, comment lines, blank lines, and a per-language breakdown — the same counts the OctoCounts web app produces with tokei, pinned to an exact commit.",
+  steps: [
+    "Install OctoCounts from the Chrome Web Store, Microsoft Edge Add-ons, or Firefox Add-ons — one click, no account.",
+    "Open any public GitHub repository page in your browser.",
+    "The SLOC card appears in the repository sidebar automatically. Click it to open the full panel with the per-language line breakdown.",
+  ],
+  permissions:
+    "The extension reads the public GitHub repository page you are viewing to detect the owner and repository name, and runs the count against public data through the OctoCounts API. It does not request GitHub account access, needs no API token, works on public repositories only, and collects no personal data. Results are cached locally and by repository and ref so repeat visits load instantly.",
+  faq: [
+    {
+      question: "Why does the SLOC card not appear on a repository page?",
+      answer:
+        "The card renders on public GitHub repository pages. It does not appear on private repositories (OctoCounts analyzes public repositories only), non-repository pages, or while GitHub ships layout changes. Reload the page first; if the card is still missing on a public repository, check the extension is enabled and report the GitHub URL via the OctoCounts repository.",
+    },
+    {
+      question: "Are the numbers live or cached?",
+      answer:
+        "Counts are cached by repository and ref, and each report is pinned to the exact commit that was counted, so the same page shows the same numbers until the repository moves on and the cache refreshes. The full panel shows the commit the count comes from.",
+    },
+    {
+      question: "Which browsers are supported?",
+      answer:
+        "Chrome, Edge, and Firefox, via their official extension stores. The extension source code is open and publicly available.",
+    },
+  ],
+  sourceUrl: "https://github.com/huanglizhuo/OctoCounts",
+};
+
+async function extensionPageResponse(context, options = {}) {
+  if (options.markdown) {
+    return markdownResponse(extensionMarkdown(), "public, s-maxage=3600, stale-while-revalidate=86400", options);
+  }
+  const index = await indexHtml(context);
+  const content = EXTENSION_CONTENT;
+  const installButtons = EXTENSION_STORES.map(
+    (store) => `<a href="${escapeAttr(store.url)}" data-store="${store.store}" data-placement="extension_page" rel="noreferrer">Install OctoCounts from ${escapeHtml(store.label)}</a>`
+  ).join(" ");
+  const steps = `<ol>${content.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>`;
+  const faqHtml = `<h2>Extension FAQ</h2>${content.faq
+    .map((item) => `<h3>${escapeHtml(item.question)}</h3>${answerHtml(item.answer)}`)
+    .join("")}`;
+  const internalLinks = `<nav aria-label="Related OctoCounts pages"><ul>
+    <li><a href="/">OctoCounts web app: count any public GitHub repository</a></li>
+    <li><a href="/compare">Compare two repositories</a></li>
+    <li><a href="/badges">GitHub SLOC badges for your README</a></li>
+    <li><a href="/docs/github-sloc-counter">GitHub SLOC counter guide</a></li>
+    <li><a href="/docs/methodology">Counting methodology</a></li>
+    <li><a href="/docs/api">OctoCounts API docs</a></li>
+  </ul></nav>`;
+
+  return htmlResponse(
+    injectHeadAndNoscript(index, {
+      title: content.title,
+      description: content.description,
+      canonical: "https://octocounts.com/extension",
+      robots: "index,follow,max-image-preview:large,max-snippet:-1",
+      ogImage: "https://octocounts.com/og-image.jpg",
+      mdAlternate: "https://octocounts.com/extension.md",
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebPage",
+            "@id": "https://octocounts.com/extension#webpage",
+            name: content.title,
+            description: content.description,
+            url: "https://octocounts.com/extension",
+          },
+          {
+            // Visible facts only: name, price, browsers, store link, author.
+            // No aggregateRating or user counts — none of that shows here.
+            "@type": "SoftwareApplication",
+            "@id": "https://octocounts.com/extension#extension",
+            name: "OctoCounts – GitHub SLOC & Code Statistics",
+            operatingSystem: "Chrome, Edge, Firefox",
+            applicationCategory: "BrowserApplication",
+            offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+            url: EXTENSION_STORES[0].url,
+            downloadUrl: EXTENSION_STORES[0].url,
+            screenshot: "https://octocounts.com/og-image.jpg",
+            description: content.description,
+            author: {
+              "@type": "Person",
+              "@id": "https://github.com/huanglizhuo",
+              name: "huanglizhuo",
+              url: "https://github.com/huanglizhuo",
+            },
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://octocounts.com/extension#faq",
+            mainEntity: content.faq.map((item) => ({
+              "@type": "Question",
+              name: item.question,
+              acceptedAnswer: { "@type": "Answer", text: item.answer },
+            })),
+          },
+        ],
+      },
+      bodyContent: `<section><h1>${escapeHtml(content.heading)}</h1><p>${escapeHtml(content.intro)}</p><p>${installButtons}</p><h2>Install in three steps</h2>${steps}<h2>Permissions and data handling</h2><p>${escapeHtml(content.permissions)}</p><h2>Supported repositories</h2><p>Public GitHub repositories. Private repositories and source-code uploads are not supported; to count private code, run <a href="https://github.com/XAMPPRocky/tokei">tokei</a> locally.</p>${faqHtml}<p>Extension source code: <a href="${escapeAttr(content.sourceUrl)}" rel="noreferrer">${escapeHtml(content.sourceUrl)}</a>.</p>${internalLinks}</section>`,
+    }),
+    "public, s-maxage=300, stale-while-revalidate=600"
+  );
+}
+
+/// Markdown twin of the extension landing page: same stores, steps,
+/// permissions, and FAQ sentences, serialized with absolute links.
+function extensionMarkdown() {
+  const content = EXTENSION_CONTENT;
+  const stores = EXTENSION_STORES.map((store) => `- [Install OctoCounts from ${store.label}](${store.url})`).join("\n");
+  const steps = content.steps.map((step, index) => `${index + 1}. ${step}`).join("\n");
+  const faq = content.faq.map((item) => `### ${item.question}\n\n${item.answer}`).join("\n\n");
+  return `# ${content.heading}
+
+${content.description}
+
+${content.intro}
+
+## Install
+
+${stores}
+
+## Install in three steps
+
+${steps}
+
+## Permissions and data handling
+
+${content.permissions}
+
+## Supported repositories
+
+Public GitHub repositories. Private repositories and source-code uploads are not supported; to count private code, run [tokei](https://github.com/XAMPPRocky/tokei) locally.
+
+## Extension FAQ
+
+${faq}
+
+Extension source code: [${content.sourceUrl}](${content.sourceUrl}).
+
+## Related OctoCounts pages
+
+- [OctoCounts web app](https://octocounts.com/)
+- [Compare two repositories](https://octocounts.com/compare)
+- [GitHub SLOC badges for your README](https://octocounts.com/badges)
+- [GitHub SLOC counter guide](https://octocounts.com/docs/github-sloc-counter)
+- [Counting methodology](https://octocounts.com/docs/methodology)
+- [OctoCounts API docs](https://octocounts.com/docs/api)
+`;
+}
+
 /// Homepage SSR. Unlike the other routes this does not go through
 /// injectHeadAndNoscript: the index.html head already carries the canonical
 /// homepage title, description, canonical link, and the full JSON-LD set
@@ -843,6 +1025,7 @@ function injectHome(index) {
         .join("")}`
     : "";
   const internalLinks = `<nav aria-label="Related OctoCounts pages"><ul>
+    <li><a href="/extension">OctoCounts browser extension for GitHub SLOC</a></li>
     <li><a href="/badges">GitHub SLOC badges for your README</a></li>
     <li><a href="/compare">Compare two repositories</a></li>
     <li><a href="/trending">Trending GitHub repositories</a></li>
@@ -857,9 +1040,9 @@ function injectHome(index) {
     <li><a href="/docs/best-sloc-counter-tools">Best SLOC counter tools compared</a></li>
   </ul></nav>`;
   const bodyContent = `<section><h1>OctoCounts – GitHub SLOC Counter</h1>
-    <p>OctoCounts is a free SLOC counter for public GitHub repositories. It counts files, code lines, comments, blanks, and per-language totals without cloning: the backend downloads the repository source archive, runs <a href="https://github.com/XAMPPRocky/tokei">tokei</a>, and caches the result by commit SHA. Public GitLab repositories are supported as well, and neither the web app nor the Chrome, Edge, and Firefox browser extensions require an account.</p>
+    <p>OctoCounts is a free SLOC counter for public GitHub repositories. It counts files, code lines, comments, blanks, and per-language totals without cloning: the backend downloads the repository source archive, runs <a href="https://github.com/XAMPPRocky/tokei">tokei</a>, and caches the result by commit SHA. Neither the web app nor the Chrome, Edge, and Firefox browser extensions require an account.</p>
     <img src="/og-image.jpg" width="1200" height="630" alt="OctoCounts mascot next to a terminal card reading Total LOC 5,505 with Code, Comments, and Blanks counts, and the tagline: Making your code count (literally)." />
-    <p><small>Last updated: ${STATIC_SITEMAP_LASTMOD} &middot; Maintained by <a href="https://github.com/huanglizhuo">huanglizhuo</a></small></p>
+    <p><small>Last updated: ${HOME_CONTENT_LASTMOD} &middot; Maintained by <a href="https://github.com/huanglizhuo">huanglizhuo</a></small></p>
     <h2>How it works</h2>
     <ol>
       <li>OctoCounts resolves the requested branch, tag, or commit and pins the analysis to an exact commit SHA.</li>
@@ -916,6 +1099,7 @@ async function curatedCompareResponse(context, entry, options = {}) {
       robots: "index,follow,max-image-preview:large,max-snippet:-1",
       ogImage: "https://octocounts.com/og-image.jpg",
       jsonLd: null,
+      extraHead: `<script type="application/json" id="octocounts-compare-data">${escapeScriptJson(compareFallbackViewModel(entry, "unavailable"))}</script>`,
       bodyContent: `<section><h1>${escapeHtml(entry.name)}: source lines of code compared</h1><p>This comparison is temporarily unavailable. Please try again in a moment.</p></section>`,
     });
   }
@@ -926,70 +1110,145 @@ async function curatedCompareResponse(context, entry, options = {}) {
   }
 
   const [left, right] = await Promise.all([leftResult.response.json(), rightResult.response.json()]);
+  const model = buildCompareViewModel(entry, left, right);
   if (options.markdown) {
-    return markdownResponse(compareMarkdown(entry, left, right), "public, s-maxage=3600, stale-while-revalidate=86400", options);
+    return markdownResponse(compareMarkdown(model), "public, s-maxage=3600, stale-while-revalidate=86400", options);
   }
-  return htmlResponse(injectCuratedCompare(await indexHtml(context), entry, left, right), "public, s-maxage=300, stale-while-revalidate=600");
+  return htmlResponse(injectCuratedCompare(await indexHtml(context), model), "public, s-maxage=300, stale-while-revalidate=600");
 }
 
-/// Markdown twin of injectCuratedCompare: same two report payloads, same
-/// summary/mix/methodology sentences, pipe table, absolute links.
-function compareMarkdown(entry, left, right) {
+/// Serializable view model shared by three renderers of the same comparison:
+/// the SSR HTML body, the client React page (#octocounts-compare-data), and
+/// the markdown twin. Every reader-visible value — display strings included —
+/// is derived here exactly once, so the representations cannot drift.
+function buildCompareViewModel(entry, left, right) {
   const leftDate = left.generatedAt.slice(0, 10);
   const rightDate = right.generatedAt.slice(0, 10);
+  const canonical = `https://octocounts.com/compare/${entry.slug}`;
   const interactiveParams = new URLSearchParams({ left: gitHubUrl(entry.left), right: gitHubUrl(entry.right) });
   if (entry.left.ref) interactiveParams.set("leftRef", entry.left.ref);
   if (entry.right.ref) interactiveParams.set("rightRef", entry.right.ref);
   const interactiveHref = `/compare?${interactiveParams.toString()}`;
+  const prefill = { left: gitHubUrl(entry.left), right: gitHubUrl(entry.right) };
+  if (entry.left.ref) prefill.leftRef = entry.left.ref;
+  if (entry.right.ref) prefill.rightRef = entry.right.ref;
+  const metrics = [
+    ["Files", left.total.files, right.total.files],
+    ["Total lines", left.total.lines, right.total.lines],
+    ["Code lines", left.total.code, right.total.code],
+    ["Comment lines", left.total.comments, right.total.comments],
+    ["Blank lines", left.total.blanks, right.total.blanks],
+    ["Languages counted", left.languages.length, right.languages.length],
+  ];
+  const side = (report, date) => ({
+    repoFullName: report.repoFullName,
+    publicPath: report.publicPath,
+    canonicalUrl: report.canonicalUrl,
+    htmlUrl: report.htmlUrl,
+    refName: report.refName,
+    commitSha: report.commitSha,
+    generatedAt: report.generatedAt,
+    date,
+    totals: { ...report.total, languages: report.languages.length },
+    topLanguages: topLanguages(report, 5).map((language) => ({ name: language.name, code: language.stats.code })),
+  });
+  return {
+    state: "ready",
+    slug: entry.slug,
+    name: entry.name,
+    canonical,
+    title: `${entry.name}: source lines of code compared | OctoCounts`,
+    heading: `${entry.name}: source lines of code compared`,
+    description: `${left.repoFullName} has ${formatNumber(left.total.lines)} total lines (${formatNumber(left.total.code)} code) and ${right.repoFullName} has ${formatNumber(right.total.lines)} total lines (${formatNumber(right.total.code)} code), counted with tokei. Totals, language mix, and methodology compared.`,
+    interactiveHref,
+    prefill,
+    left: side(left, leftDate),
+    right: side(right, rightDate),
+    // Display strings, not raw numbers: the client renders them verbatim so a
+    // browser locale (Intl grouping) can never disagree with the SSR body.
+    rows: metrics.map(([label, leftValue, rightValue]) => ({ label, left: formatNumber(leftValue), right: formatNumber(rightValue) })),
+    definitionText: `This page compares the source lines of code (SLOC) of ${left.repoFullName} and ${right.repoFullName} using cached OctoCounts reports. Code size is not code quality: a larger count only means more source material, not a better or worse project.`,
+    summaryText: compareSummaryText(left, right, leftDate, rightDate),
+    languageMixText: compareLanguageMixText(left, right),
+    methodologyText: compareMethodologyText(left, right, leftDate, rightDate),
+    disclaimerText: "Note: code size is not code quality. OctoCounts only reports reproducible line counts and makes no claim that either project is better.",
+    editorial: COMPARE_EDITORIAL[entry.slug] ?? null,
+    faq: compareFaq(entry, left, right, leftDate, rightDate),
+    relatedLinks: [
+      { href: "/compare", label: "Interactive repository comparison" },
+      { href: "/recent", label: "Recently analyzed repositories" },
+      { href: "/popular", label: "Popular SLOC reports" },
+      { href: "/trending", label: "Trending GitHub repositories" },
+      { href: "/hall-of-monoliths", label: "Hall of Monoliths" },
+      { href: "/docs/github-sloc-counter", label: "GitHub SLOC counter guide" },
+      { href: "/docs/methodology", label: "Counting methodology" },
+      { href: "/docs/api", label: "OctoCounts API docs" },
+    ],
+    updatedAt: left.generatedAt > right.generatedAt ? left.generatedAt : right.generatedAt,
+  };
+}
+
+/// Minimal view model for the two degraded states, so the client page keeps
+/// the same heading and canonical identity as the SSR fallback it replaces.
+function compareFallbackViewModel(entry, state) {
+  return {
+    state,
+    slug: entry.slug,
+    name: entry.name,
+    canonical: `https://octocounts.com/compare/${entry.slug}`,
+    title: `${entry.name}: source lines of code compared | OctoCounts`,
+    heading: `${entry.name}: source lines of code compared`,
+    interactiveHref: `/compare/${entry.slug}`,
+  };
+}
+
+/// Markdown twin of injectCuratedCompare: rendered from the same view model,
+/// so summary/mix/methodology sentences, the pipe table, and absolute links
+/// carry identical facts to the HTML page and the client React page.
+function compareMarkdown(model) {
   const table = [
-    `| Metric | [${left.repoFullName}](https://octocounts.com${left.publicPath}) | [${right.repoFullName}](https://octocounts.com${right.publicPath}) |`,
+    `| Metric | [${model.left.repoFullName}](https://octocounts.com${model.left.publicPath}) | [${model.right.repoFullName}](https://octocounts.com${model.right.publicPath}) |`,
     "| --- | ---: | ---: |",
-    ...[
-      ["Files", left.total.files, right.total.files],
-      ["Total lines", left.total.lines, right.total.lines],
-      ["Code lines", left.total.code, right.total.code],
-      ["Comment lines", left.total.comments, right.total.comments],
-      ["Blank lines", left.total.blanks, right.total.blanks],
-      ["Languages counted", left.languages.length, right.languages.length],
-    ].map(([label, leftValue, rightValue]) => `| ${label} | ${formatNumber(leftValue)} | ${formatNumber(rightValue)} |`),
+    ...model.rows.map((row) => `| ${row.label} | ${row.left} | ${row.right} |`),
   ].join("\n");
-  const methodology = compareMethodologyText(left, right, leftDate, rightDate).replace(
+  const methodology = model.methodologyText.replace(
     "See the counting methodology",
     "See the [counting methodology](https://octocounts.com/docs/methodology)"
   );
-  const faq = compareFaq(entry, left, right, leftDate, rightDate);
-  return `# ${entry.name}: source lines of code compared
+  return `# ${model.name}: source lines of code compared
 
-${compareSummaryText(left, right, leftDate, rightDate)}
+${model.summaryText}
 
 ${table}
 
-${compareLanguageMixText(left, right)}
+${model.languageMixText}
 
 ${methodology}
+${model.editorial ? `## About this comparison
 
-Evidence and next steps:
+${model.editorial.scope}
 
-- [${left.repoFullName} SLOC report](https://octocounts.com${left.publicPath})
-- [${right.repoFullName} SLOC report](https://octocounts.com${right.publicPath})
-- [Compare ${left.repoFullName} and ${right.repoFullName} interactively](https://octocounts.com${interactiveHref})
+${model.editorial.insights.join("\n\n")}
 
-Note: code size is not code quality. OctoCounts only reports reproducible line counts and makes no claim that either project is better.
+_${model.editorial.caution}_
+
+Sources: ${model.editorial.sources.map((source) => `[${source.label}](${source.url})`).join(" · ")}. Statements verified ${model.editorial.verifiedAt}.
+
+` : ""}Evidence and next steps:
+
+- [${model.left.repoFullName} SLOC report](https://octocounts.com${model.left.publicPath})
+- [${model.right.repoFullName} SLOC report](https://octocounts.com${model.right.publicPath})
+- [Compare ${model.left.repoFullName} and ${model.right.repoFullName} interactively](https://octocounts.com${model.interactiveHref})
+
+${model.disclaimerText}
 
 ## Compare FAQ
 
-${compareFaqMarkdown(faq)}
+${compareFaqMarkdown(model.faq)}
 
 ## Related OctoCounts pages
 
-- [Interactive repository comparison](https://octocounts.com/compare)
-- [Recently analyzed repositories](https://octocounts.com/recent)
-- [Popular SLOC reports](https://octocounts.com/popular)
-- [Trending GitHub repositories](https://octocounts.com/trending)
-- [Hall of Monoliths](https://octocounts.com/hall-of-monoliths)
-- [GitHub SLOC counter guide](https://octocounts.com/docs/github-sloc-counter)
-- [Counting methodology](https://octocounts.com/docs/methodology)
-- [OctoCounts API docs](https://octocounts.com/docs/api)
+${model.relatedLinks.map((link) => `- [${link.label}](https://octocounts.com${link.href})`).join("\n")}
 `;
 }
 
@@ -1088,7 +1347,7 @@ async function indexableCompareEntries(context) {
     return left !== "missing" && right !== "missing";
   }).map((entry) => ({
     loc: `https://octocounts.com/compare/${entry.slug}`,
-    lastmod: STATIC_SITEMAP_LASTMOD,
+    lastmod: COMPARE_CONTENT_LASTMOD,
   }));
 }
 
@@ -1099,67 +1358,49 @@ function seoReportUrl(context, target) {
   return `${apiBase(context)}/api/seo/report?${params.toString()}`;
 }
 
-function injectCuratedCompare(index, entry, left, right) {
-  const canonical = `https://octocounts.com/compare/${entry.slug}`;
-  const leftDate = left.generatedAt.slice(0, 10);
-  const rightDate = right.generatedAt.slice(0, 10);
-  const title = `${entry.name}: source lines of code compared | OctoCounts`;
-  const description = `${left.repoFullName} has ${formatNumber(left.total.lines)} total lines (${formatNumber(left.total.code)} code) and ${right.repoFullName} has ${formatNumber(right.total.lines)} total lines (${formatNumber(right.total.code)} code), counted with tokei. Totals, language mix, and methodology compared.`;
-  const interactiveParams = new URLSearchParams({ left: gitHubUrl(entry.left), right: gitHubUrl(entry.right) });
-  if (entry.left.ref) interactiveParams.set("leftRef", entry.left.ref);
-  if (entry.right.ref) interactiveParams.set("rightRef", entry.right.ref);
-  const interactiveHref = `/compare?${interactiveParams.toString()}`;
-  const prefill = { left: gitHubUrl(entry.left), right: gitHubUrl(entry.right) };
-  if (entry.left.ref) prefill.leftRef = entry.left.ref;
-  if (entry.right.ref) prefill.rightRef = entry.right.ref;
-
-  const table = `<table><thead><tr><th>Metric</th><th><a href="${escapeAttr(left.publicPath)}">${escapeHtml(left.repoFullName)}</a></th><th><a href="${escapeAttr(right.publicPath)}">${escapeHtml(right.repoFullName)}</a></th></tr></thead><tbody>${[
-    ["Files", left.total.files, right.total.files],
-    ["Total lines", left.total.lines, right.total.lines],
-    ["Code lines", left.total.code, right.total.code],
-    ["Comment lines", left.total.comments, right.total.comments],
-    ["Blank lines", left.total.blanks, right.total.blanks],
-    ["Languages counted", left.languages.length, right.languages.length],
-  ]
-    .map(([label, leftValue, rightValue]) => `<tr><td>${label}</td><td>${formatNumber(leftValue)}</td><td>${formatNumber(rightValue)}</td></tr>`)
+function injectCuratedCompare(index, model) {
+  const table = `<table><thead><tr><th>Metric</th><th><a href="${escapeAttr(model.left.publicPath)}">${escapeHtml(model.left.repoFullName)}</a></th><th><a href="${escapeAttr(model.right.publicPath)}">${escapeHtml(model.right.repoFullName)}</a></th></tr></thead><tbody>${model.rows
+    .map((row) => `<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(row.left)}</td><td>${escapeHtml(row.right)}</td></tr>`)
     .join("")}</tbody></table>`;
-  const internalLinks = `<nav aria-label="Related OctoCounts pages"><ul>
-    <li><a href="/compare">Interactive repository comparison</a></li>
-    <li><a href="/recent">Recently analyzed repositories</a></li>
-    <li><a href="/popular">Popular SLOC reports</a></li>
-    <li><a href="/trending">Trending GitHub repositories</a></li>
-    <li><a href="/hall-of-monoliths">Hall of Monoliths</a></li>
-    <li><a href="/docs/github-sloc-counter">GitHub SLOC counter guide</a></li>
-    <li><a href="/docs/methodology">Counting methodology</a></li>
-    <li><a href="/docs/api">OctoCounts API docs</a></li>
-  </ul></nav>`;
-  const compareDefinition = `<p>This page compares the source lines of code (SLOC) of ${escapeHtml(left.repoFullName)} and ${escapeHtml(right.repoFullName)} using cached OctoCounts reports. Code size is not code quality: a larger count only means more source material, not a better or worse project.</p>`;
-  const faq = compareFaq(entry, left, right, leftDate, rightDate);
-  const bodyContent = `<section><h1>${escapeHtml(entry.name)}: source lines of code compared</h1>${compareDefinition}${compareSummary(left, right, leftDate, rightDate)}${table}${compareLanguageMix(left, right)}${compareMethodology(left, right, leftDate, rightDate)}<p>Evidence and next steps:</p><ul>
-    <li><a href="${escapeAttr(left.publicPath)}">${escapeHtml(left.repoFullName)} SLOC report</a></li>
-    <li><a href="${escapeAttr(right.publicPath)}">${escapeHtml(right.repoFullName)} SLOC report</a></li>
-    <li><a href="${escapeAttr(interactiveHref)}">Compare ${escapeHtml(left.repoFullName)} and ${escapeHtml(right.repoFullName)} interactively</a></li>
-  </ul><p>Note: code size is not code quality. OctoCounts only reports reproducible line counts and makes no claim that either project is better.</p>${compareFaqHtml(faq)}${internalLinks}</section>`;
+  const internalLinks = `<nav aria-label="Related OctoCounts pages"><ul>${model.relatedLinks
+    .map((link) => `<li><a href="${escapeAttr(link.href)}">${escapeHtml(link.label)}</a></li>`)
+    .join("")}</ul></nav>`;
+  // The methodology sentence keeps its inline /docs/methodology link in HTML;
+  // the client splits the same plain string on the same anchor phrase.
+  const methodology = `<p>${escapeHtml(model.methodologyText).replace("See the counting methodology", 'See the <a href="/docs/methodology">counting methodology</a>')}</p>`;
+  const editorialHtml = model.editorial
+    ? `<section aria-label="About this comparison"><h2>About this comparison</h2><p>${escapeHtml(model.editorial.scope)}</p>${model.editorial.insights
+        .map((insight) => `<p>${escapeHtml(insight)}</p>`)
+        .join("")}<p><em>${escapeHtml(model.editorial.caution)}</em></p><p>Sources: ${model.editorial.sources
+        .map((source) => `<a href="${escapeAttr(source.url)}" rel="noreferrer">${escapeHtml(source.label)}</a>`)
+        .join(" · ")}. Statements verified ${escapeHtml(model.editorial.verifiedAt)}.</p></section>`
+    : "";
+  const bodyContent = `<section><h1>${escapeHtml(model.heading)}</h1><p>${escapeHtml(model.definitionText)}</p><p>${escapeHtml(model.summaryText)}</p>${table}<p>${escapeHtml(model.languageMixText)}</p>${methodology}${editorialHtml}<p>Evidence and next steps:</p><ul>
+    <li><a href="${escapeAttr(model.left.publicPath)}">${escapeHtml(model.left.repoFullName)} SLOC report</a></li>
+    <li><a href="${escapeAttr(model.right.publicPath)}">${escapeHtml(model.right.repoFullName)} SLOC report</a></li>
+    <li><a href="${escapeAttr(model.interactiveHref)}">Compare ${escapeHtml(model.left.repoFullName)} and ${escapeHtml(model.right.repoFullName)} interactively</a></li>
+  </ul><p>${escapeHtml(model.disclaimerText)}</p>${compareFaqHtml(model.faq)}${internalLinks}</section>`;
 
   return injectHeadAndNoscript(index, {
-    title,
-    description,
-    canonical,
+    title: model.title,
+    description: model.description,
+    canonical: model.canonical,
     robots: "index,follow,max-image-preview:large,max-snippet:-1",
     ogImage: "https://octocounts.com/og-image.jpg",
-    jsonLd: compareJsonLd(entry, left, right, canonical, description, faq),
-    mdAlternate: `${canonical}.md`,
-    extraHead: `<script type="application/json" id="octocounts-compare-prefill">${escapeScriptJson(prefill)}</script>`,
+    jsonLd: compareJsonLd(model),
+    mdAlternate: `${model.canonical}.md`,
+    // Two machine-readable payloads for the client page: the full view model
+    // it renders (SG-01: JS readers keep the comparison instead of losing it
+    // to the generic tool) and the prefill the embedded interactive tool
+    // starts from.
+    extraHead: `<script type="application/json" id="octocounts-compare-data">${escapeScriptJson(model)}</script>
+<script type="application/json" id="octocounts-compare-prefill">${escapeScriptJson(model.prefill)}</script>`,
     bodyContent,
   });
 }
 
 function gitHubUrl(target) {
   return `https://github.com/${target.owner}/${target.repo}`;
-}
-
-function compareSummary(left, right, leftDate, rightDate) {
-  return `<p>${escapeHtml(compareSummaryText(left, right, leftDate, rightDate))}</p>`;
 }
 
 function compareSummaryText(left, right, leftDate, rightDate) {
@@ -1170,10 +1411,6 @@ function compareSummaryText(left, right, leftDate, rightDate) {
     ? `${left.repoFullName} and ${right.repoFullName} are similar in size by code lines`
     : `${leftCode >= rightCode ? left.repoFullName : right.repoFullName} is about ${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}x the size of ${leftCode >= rightCode ? right.repoFullName : left.repoFullName} by code lines`;
   return `As of ${leftDate}, ${left.repoFullName} contains ${formatNumber(left.total.lines)} total lines (${formatNumber(left.total.code)} code) across ${formatNumber(left.total.files)} files, while ${right.repoFullName} contains ${formatNumber(right.total.lines)} total lines (${formatNumber(right.total.code)} code) across ${formatNumber(right.total.files)} files as of ${rightDate}. ${sizePhrase}. Code size is not code quality: a larger count only means more source material, not a better or worse project.`;
-}
-
-function compareLanguageMix(left, right) {
-  return `<p>${escapeHtml(compareLanguageMixText(left, right))}</p>`;
 }
 
 function compareLanguageMixText(left, right) {
@@ -1198,10 +1435,6 @@ function compareLanguageMixText(left, right) {
 
 function topLanguages(report, count) {
   return [...report.languages].sort((a, b) => b.stats.code - a.stats.code).slice(0, count);
-}
-
-function compareMethodology(left, right, leftDate, rightDate) {
-  return `<p>${escapeHtml(compareMethodologyText(left, right, leftDate, rightDate)).replace("See the counting methodology", 'See the <a href="/docs/methodology">counting methodology</a>')}</p>`;
 }
 
 function compareMethodologyText(left, right, leftDate, rightDate) {
@@ -1263,18 +1496,18 @@ function compareFaqJsonLd(canonical, faq) {
   };
 }
 
-function compareJsonLd(entry, left, right, canonical, description, faq) {
+function compareJsonLd(model) {
   return {
     "@context": "https://schema.org",
     "@graph": [
-      compareFaqJsonLd(canonical, faq),
+      compareFaqJsonLd(model.canonical, model.faq),
       {
         "@type": "Dataset",
-        "@id": `${canonical}#dataset`,
-        name: `${entry.name} source line count comparison`,
-        description,
-        url: canonical,
-        dateModified: left.generatedAt > right.generatedAt ? left.generatedAt : right.generatedAt,
+        "@id": `${model.canonical}#dataset`,
+        name: `${model.name} source line count comparison`,
+        description: model.description,
+        url: model.canonical,
+        dateModified: model.updatedAt,
         measurementTechnique: "tokei via OctoCounts",
         variableMeasured: ["files", "lines", "code", "comments", "blanks", "languages"],
         creator: {
@@ -1282,15 +1515,15 @@ function compareJsonLd(entry, left, right, canonical, description, faq) {
           name: "OctoCounts",
           url: "https://octocounts.com/",
         },
-        isBasedOn: [left.canonicalUrl, right.canonicalUrl],
+        isBasedOn: [model.left.canonicalUrl, model.right.canonicalUrl],
       },
       {
         "@type": "BreadcrumbList",
-        "@id": `${canonical}#breadcrumbs`,
+        "@id": `${model.canonical}#breadcrumbs`,
         itemListElement: [
           { "@type": "ListItem", position: 1, name: "OctoCounts", item: "https://octocounts.com/" },
           { "@type": "ListItem", position: 2, name: "Compare", item: "https://octocounts.com/compare" },
-          { "@type": "ListItem", position: 3, name: entry.name, item: canonical },
+          { "@type": "ListItem", position: 3, name: model.name, item: model.canonical },
         ],
       },
     ],
@@ -1306,6 +1539,7 @@ function injectCompareFallback(index, entry) {
     robots: "noindex,follow,max-image-preview:large",
     ogImage: "https://octocounts.com/og-image.jpg",
     jsonLd: null,
+    extraHead: `<script type="application/json" id="octocounts-compare-data">${escapeScriptJson(compareFallbackViewModel(entry, "missing"))}</script>`,
     bodyContent: `<section><h1>${escapeHtml(entry.name)}: source lines of code compared</h1><p>A cached OctoCounts report is not available for both repositories yet, so this comparison cannot be rendered. Open this page with JavaScript enabled to run the analyses, then revisit this page.</p></section>`,
   });
 }

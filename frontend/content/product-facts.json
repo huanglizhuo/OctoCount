@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-09-08",
+  "product": "OctoCounts",
+  "facts": {
+    "publicRepositoryProviders": {
+      "value": "public GitHub repositories (github.com)",
+      "claim": "OctoCounts is a free SLOC counter for public GitHub repositories.",
+      "sources": [
+        "frontend/public/docs/api.html — \"repoUrl supports public github.com repositories\"",
+        "frontend/public/llms-full.txt — Scope and Limitations",
+        "frontend/src (all product surfaces render GitHub reports only; /embed/github is the only embed provider)",
+        "backend/src/github.rs parse_repo_url rejects non-github.com hosts (test: rejects_gitlab_urls)"
+      ],
+      "notes": "2026-09-08: all GitLab support and copy removed from the frontend and public docs, and backend parse_repo_url now rejects gitlab.com URLs (github.rs; local cargo test verified, deployment pending). Storage keeps tolerating historical provider rows. Do not re-advertise GitLab."
+    },
+    "privateRepositories": {
+      "value": false,
+      "claim": "Private repositories are not supported; run tokei locally for private code.",
+      "sources": [
+        "frontend/public/docs/api.html — \"does not support private repositories\"",
+        "frontend/public/llms-full.txt — Scope and Limitations"
+      ]
+    },
+    "sourceUploads": {
+      "value": false,
+      "claim": "Source-code uploads are not accepted; analysis always targets a hosted public repository.",
+      "sources": [
+        "frontend/public/docs/api.html",
+        "frontend/public/llms-full.txt"
+      ]
+    },
+    "accountAccess": {
+      "value": "none",
+      "claim": "No GitHub account access, API token, or sign-up is required.",
+      "sources": [
+        "frontend/public/docs/api.html",
+        "frontend/index.html FAQ JSON-LD"
+      ]
+    },
+    "refSupport": {
+      "value": "branch, tag, or commit SHA; the analysis is pinned to an exact commit SHA",
+      "claim": "OctoCounts resolves the requested branch, tag, or commit and pins the analysis to an exact commit SHA.",
+      "sources": [
+        "frontend/functions/[[path]].js reportLeadText",
+        "frontend/public/docs/methodology.html"
+      ]
+    },
+    "countingEngine": {
+      "value": "tokei (open source, Rust); every report carries its tokei version",
+      "claim": "Counts are produced by tokei, the open-source line counter written in Rust.",
+      "sources": [
+        "https://github.com/XAMPPRocky/tokei",
+        "frontend/public/docs/methodology.html",
+        "backend SeoReport.tokeiVersion (backend/src/seo.rs)"
+      ]
+    },
+    "defaultIgnoredDirs": {
+      "value": [
+        ".cache",
+        ".git",
+        ".next",
+        "build",
+        "dist",
+        "node_modules",
+        "target",
+        "vendor"
+      ],
+      "claim": "These directories are skipped by default.",
+      "sources": [
+        "frontend/src/main.tsx defaultIgnoredDirs",
+        "frontend/public/llms-full.txt"
+      ]
+    },
+    "analysisOptions": {
+      "value": [
+        "ignoredDirs",
+        "ignoredLanguages",
+        "includeDocs",
+        "includeTests",
+        "includeGenerated",
+        "profile"
+      ],
+      "claim": "Users may ignore additional directories or languages and choose whether docs, tests, or generated files are included.",
+      "sources": [
+        "frontend/src/main.tsx defaultAnalysisOptions",
+        "frontend/public/llms-full.txt"
+      ]
+    },
+    "cacheKey": {
+      "value": "repository + commit SHA + tokei version + analysis options",
+      "claim": "Results are cached by commit SHA, tokei version, and analysis options, so counting the same revision again reproduces the same numbers.",
+      "sources": [
+        "frontend/public/docs/methodology.html",
+        "frontend/functions/[[path]].js reportLeadText"
+      ]
+    },
+    "exports": {
+      "value": "plain text, JSON, and a 1200x630 PNG share card",
+      "claim": "Reports export as text, JSON, or PNG, generated client-side.",
+      "sources": [
+        "frontend/index.html FAQ JSON-LD",
+        "frontend/src/main.tsx export actions"
+      ]
+    },
+    "extensions": {
+      "value": {
+        "chrome": "https://chromewebstore.google.com/detail/octocounts-%E2%80%94-github-sloc/gkgjpjdnaklagijmekoolhcpebmoldbj",
+        "edge": "https://microsoftedge.microsoft.com/addons/detail/octocounts-%E2%80%93-github-sloc-/ehifednhpbpekkadndaipnngopbhpoim",
+        "firefox": "https://addons.mozilla.org/en-US/firefox/addon/octocounts-github-sloc/"
+      },
+      "claim": "Browser extensions for Chrome, Edge, and Firefox add a SLOC card to GitHub repository sidebars.",
+      "sources": [
+        "frontend/index.html WebApplication/SoftwareApplication JSON-LD and noscript install links",
+        "frontend/public/llms.txt — Browser extension stores"
+      ]
+    },
+    "performanceClaims": {
+      "value": "mechanism-only",
+      "claim": "OctoCounts downloads the compressed source archive of the requested ref instead of cloning full git history. No speed or size multiples may be stated without a published, reproducible experiment (repository, commit, machine, tool versions, network, cache state, commands).",
+      "sources": [
+        "frontend/public/docs/methodology.html — archive download step",
+        "SEO-GEO-optimize-plan.md SG-02 step 5"
+      ]
+    },
+    "apiRateLimit": {
+      "value": "no publicly documented rate limit",
+      "claim": "State only that no rate limit is publicly documented; do not promise unlimited use.",
+      "sources": [
+        "frontend/index.html FAQ JSON-LD"
+      ]
+    },
+    "privacy": {
+      "value": "no account, no advertising, no personal data collection; public repositories only",
+      "claim": "OctoCounts collects no personal data and shows no advertising.",
+      "sources": [
+        "frontend/index.html FAQ JSON-LD",
+        "frontend/public/privacy.html"
+      ]
+    }
+  }
+}

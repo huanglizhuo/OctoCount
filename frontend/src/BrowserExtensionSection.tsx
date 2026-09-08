@@ -25,6 +25,7 @@ export default function BrowserExtensionSection({ compact = false }: { compact?:
           {features.map((feature) => <li key={feature}>{feature}</li>)}
         </ul>
         <div className="extension-actions">
+          <a className="copybtn" href="/extension">{t("extensionSection.learnMore")}</a>
           <a className="btn install-btn" href={extensionInfo.chromeWebStoreUrl} target="_blank" rel="noreferrer" onClick={() => trackEvent(AnalyticsEvents.extensionStoreClick, { store: "chrome", placement: "extension_section" })}>
             <ChromeIcon size={15} />
             {t("extensionSection.installChrome")}

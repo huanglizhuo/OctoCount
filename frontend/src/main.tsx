@@ -3,7 +3,7 @@ import { ArrowUp, ChevronDown, ChevronRight, Clipboard, Download, ExternalLink, 
 import React, { FormEvent, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import i18n, { ready as i18nReady } from "./i18n";
-import { ChromeIcon, EdgeIcon, FirefoxIcon } from "./icons";
+import { StoreLink } from "./StoreLink";
 import { defaultRepoUrl, defaultRefName, extensionInfo, siteLastUpdated } from "./constants";
 import { analyzeRepository, fetchGrowthStats, fetchJson } from "./api";
 import { isHostDegraded, useGithubStatus } from "./githubStatus";
@@ -19,8 +19,10 @@ const StatsPage = React.lazy(() => import("./pages/marketing").then((m) => ({ de
 const ReportListPage = React.lazy(() => import("./pages/marketing").then((m) => ({ default: m.ReportListPage })));
 const TrendingPage = React.lazy(() => import("./pages/marketing").then((m) => ({ default: m.TrendingPage })));
 const ComparePage = React.lazy(() => import("./pages/marketing").then((m) => ({ default: m.ComparePage })));
+const CuratedComparePage = React.lazy(() => import("./pages/marketing").then((m) => ({ default: m.CuratedComparePage })));
 const DiffPage = React.lazy(() => import("./pages/marketing").then((m) => ({ default: m.DiffPage })));
 const BadgesPage = React.lazy(() => import("./pages/marketing").then((m) => ({ default: m.BadgesPage })));
+const ExtensionPage = React.lazy(() => import("./pages/marketing").then((m) => ({ default: m.ExtensionPage })));
 const EmbedPage = React.lazy(() => import("./embed").then((m) => ({ default: m.EmbedPage })));
 // Below-the-fold tool sections on the home page — deferred anyway, so lazy.
 const CompareRepos = React.lazy(() => import("./compare").then((m) => ({ default: m.CompareRepos })));
@@ -243,9 +245,15 @@ function App() {
   if (routePath === "/popular") return <RoutedPage><ReportListPage kind="popular" /></RoutedPage>;
   if (routePath === "/trending") return <RoutedPage><TrendingPage /></RoutedPage>;
   if (routePath === "/hall-of-monoliths") return <RoutedPage><ReportListPage kind="monoliths" /></RoutedPage>;
-  if (routePath === "/compare" || routePath.startsWith("/compare/")) return <RoutedPage><ComparePage /></RoutedPage>;
+  // Two page contracts (SG-01): /compare is the generic tool; /compare/:slug
+  // is a curated comparison whose facts the Pages Function server-renders and
+  // re-injects as #octocounts-compare-data. The curated page renders from that
+  // model so enabling JS keeps the comparison instead of discarding it.
+  if (routePath === "/compare") return <RoutedPage><ComparePage /></RoutedPage>;
+  if (routePath.startsWith("/compare/")) return <RoutedPage><CuratedComparePage /></RoutedPage>;
   if (routePath === "/diff") return <RoutedPage><DiffPage /></RoutedPage>;
   if (routePath === "/badges") return <RoutedPage><BadgesPage /></RoutedPage>;
+  if (routePath === "/extension") return <RoutedPage><ExtensionPage /></RoutedPage>;
   if (routePath.startsWith("/embed/")) return <RoutedPage><EmbedPage /></RoutedPage>;
 
   const initialRequest = useMemo(() => initialRequestFromLocation(), []);
@@ -309,8 +317,7 @@ function App() {
     if (!report || report === seedReport) return;
     const path = window.location.pathname;
     if (path === "/compare" || path === "/diff") return;
-    if (normalizedProvider(report) !== "github") return;
-    const canonical = new URL(buildPublicReportUrl(report.repository.owner, report.repository.name, report.refName, "github"));
+    const canonical = new URL(buildPublicReportUrl(report.repository.owner, report.repository.name, report.refName));
     const params = new URLSearchParams(window.location.search);
     params.delete("q");
     params.delete("url");
@@ -799,8 +806,28 @@ function SimilarRepos({ report }: { report: Report }) {
   );
 }
 
+// A citation the reader can paste anywhere (SG-04): repository, code lines,
+// date, commit, a one-line configuration summary, and the snapshot URL that
+// reproduces exactly this configuration. Text-only by design so it survives
+// clipboard, issues, and plain-text contexts.
+function reportCitation(report: Report) {
+  const options = report.analysisOptions;
+  const ignores = [...options.ignoredDirs, ...options.ignoredLanguages];
+  const toggles: string[] = [];
+  if (!options.includeTests) toggles.push("tests excluded");
+  if (!options.includeDocs) toggles.push("docs excluded");
+  if (!options.includeGenerated) toggles.push("generated excluded");
+  if (options.profile && options.profile !== "default") toggles.push(`profile: ${options.profile}`);
+  const configuration = ignores.length || toggles.length
+    ? `custom configuration (${[...toggles, ...ignores.map((entry) => `ignoring ${entry}`)].join(", ")})`
+    : "default configuration";
+  const countedAt = report.generatedAt.slice(0, 10);
+  return `${report.repository.owner}/${report.repository.name} has ${formatNumber(report.total.code)} lines of code (SLOC counted ${countedAt} at commit ${report.commitSha.slice(0, 12)}, ${configuration}, via OctoCounts/tokei): ${buildSnapshotReportUrl(report)}`;
+}
+
 function ReportContextTools({ report, repoUrl, refName }: { report: Report | null; repoUrl: string; refName: string }) {
   const { t } = useTranslation();
+  const copied = useCopied();
   const targetRepo = report?.repository.htmlUrl || repoUrl;
   const targetRef = report?.commitSha || report?.refName || refName;
   const query = new URLSearchParams({ repo: targetRepo });
@@ -815,6 +842,22 @@ function ReportContextTools({ report, repoUrl, refName }: { report: Report | nul
         <span className="sub">{t("reportTools.subtitle")}</span>
       </div>
       <div className="report-tool-links">
+        <button
+          type="button"
+          className="copybtn"
+          disabled={!report}
+          onClick={() => {
+            if (!report) return;
+            void copyText(reportCitation(report)).then((ok) => {
+              copied.showCopied("citation");
+              trackEvent("report_citation_copied", { provider: "github" });
+              if (!ok) window.prompt(t("reportCta.copyFailed"), reportCitation(report));
+            });
+          }}
+        >
+          <Clipboard size={14} />
+          {copied.copiedKey === "citation" ? t("reportCta.copied") : t("reportTools.copyCitation")}
+        </button>
         <a className="copybtn" href={`/compare?${compare.toString()}`}>{t("reportTools.compare")}</a>
         <a className="copybtn" href={`/diff?${diff.toString()}`}>{t("reportTools.diff")}</a>
         <a className="copybtn" href={`/badges?${query.toString()}`}>{t("reportTools.badges")}</a>
@@ -870,18 +913,6 @@ function LanguageSwitcher() {
   );
 }
 
-
-// Single builder for extension store links: href + tracking + noreferrer in one place.
-function StoreLink({ store, placement, size = 15, className, children }: { store: "chrome" | "edge" | "firefox"; placement: string; size?: number; className: string; children?: React.ReactNode }) {
-  const href = store === "chrome" ? extensionInfo.chromeWebStoreUrl : store === "edge" ? extensionInfo.edgeAddOnsUrl : extensionInfo.firefoxAddOnsUrl;
-  const Icon = store === "chrome" ? ChromeIcon : store === "edge" ? EdgeIcon : FirefoxIcon;
-  return (
-    <a className={className} href={href} target="_blank" rel="noreferrer" onClick={() => trackEvent(AnalyticsEvents.extensionStoreClick, { store, placement })}>
-      <Icon size={size} aria-hidden="true" />
-      {children}
-    </a>
-  );
-}
 
 function StarBadge({ stars, size = 11, className }: { stars: number; size?: number; className?: string }) {
   return (
@@ -1565,7 +1596,7 @@ function syncPageMetadata({
     return;
   }
 
-  const isPublicReportPath = path.startsWith("/github/") || path.startsWith("/gitlab/");
+  const isPublicReportPath = path.startsWith("/github/");
   if (!isPublicReportPath) {
     applyPageMetadata({
       title: defaultTitle,
@@ -1594,13 +1625,7 @@ function syncPageMetadata({
 }
 
 function buildCanonicalReportUrl(report: Report, ref: string) {
-  const provider = normalizedProvider(report);
-  if (provider === "github" || provider === "gitlab") {
-    return buildPublicReportUrl(report.repository.owner, report.repository.name, ref, provider);
-  }
-  const params = new URLSearchParams({ q: report.repository.htmlUrl });
-  if (ref.trim()) params.set("ref", ref.trim());
-  return `${window.location.origin}/?${params.toString()}`;
+  return buildPublicReportUrl(report.repository.owner, report.repository.name, ref);
 }
 
 // Canonical URLs stay clean for search. Shared URLs deliberately pin the
@@ -1608,26 +1633,15 @@ function buildCanonicalReportUrl(report: Report, ref: string) {
 // one can reproduce this report instead of silently recounting a branch with
 // default options.
 function buildSnapshotReportUrl(report: Report) {
-  const provider = normalizedProvider(report);
   const ref = report.commitSha || report.refName;
-  const base = provider === "github" || provider === "gitlab"
-    ? buildPublicReportUrl(report.repository.owner, report.repository.name, ref, provider)
-    : buildCanonicalReportUrl(report, ref);
+  const base = buildPublicReportUrl(report.repository.owner, report.repository.name, ref);
   const params = new URLSearchParams();
   params.set("analysis", JSON.stringify(report.analysisOptions));
   return `${base}?${params.toString()}`;
 }
 
-function buildCanonicalUrlForParsedRepo(parsed: { owner: string; repo: string; host?: string }, repoUrl: string, ref: string) {
-  if (parsed.host === "github.com") {
-    return buildPublicReportUrl(parsed.owner, parsed.repo, ref, "github");
-  }
-  if (parsed.host === "gitlab.com") {
-    return buildPublicReportUrl(parsed.owner, parsed.repo, ref, "gitlab");
-  }
-  const params = new URLSearchParams({ q: repoUrl.trim() });
-  if (ref.trim()) params.set("ref", ref.trim());
-  return `${window.location.origin}/?${params.toString()}`;
+function buildCanonicalUrlForParsedRepo(parsed: { owner: string; repo: string }, _repoUrl: string, ref: string) {
+  return buildPublicReportUrl(parsed.owner, parsed.repo, ref);
 }
 
 // Applies title/description/og/twitter/canonical in one call; the per-branch
