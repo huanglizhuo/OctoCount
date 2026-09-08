@@ -8,10 +8,19 @@
     "chrome": "Chrome",
     "edge": "Edge",
     "firefox": "Firefox",
-    "githubAria": "View OctoCounts on GitHub"
+    "githubAria": "View OctoCounts on GitHub",
+    "navigation": "Primary navigation",
+    "analyze": "Analyze",
+    "explore": "Explore",
+    "tools": "Tools",
+    "install": "Install",
+    "installExtension": "Install extension",
+    "compare": "Compare repositories",
+    "diff": "Diff refs",
+    "badges": "Badges & embeds"
   },
   "hero": {
-    "title": "GitHub <1>SLOC counter</1>: the panel GitHub forgot.",
+    "title": "GitHub <1>code statistics</1>, at a glance.",
     "subtitle": "Install the browser extension to see SLOC directly in GitHub's repo sidebar, or paste a public GitHub repo URL here for the full web report. Powered by <1>tokei</1>, no clone required.",
     "definition": "OctoCounts is a free SLOC counter for public GitHub repositories. It shows files, total lines, code, comments, blanks, and per-language totals without cloning.",
     "freshnessLabel": "Last updated",
@@ -30,7 +39,10 @@
     "installChrome": "Chrome Web Store",
     "installEdge": "Microsoft Edge Add-ons",
     "installFirefox": "Firefox (GitHub download)",
-    "sidebarHint": "See SLOC directly in GitHub's repo sidebar."
+    "addToChrome": "Add to Chrome",
+    "sidebarHint": "See SLOC directly in GitHub's repo sidebar.",
+    "otherBrowsers": "Other browsers",
+    "ambiguousRef": "This URL may contain a branch and a path. Enter the ref explicitly before analyzing."
   },
   "samples": {
     "label": "sample"
@@ -53,7 +65,8 @@
       "running": "Downloading archive, extracting files, and counting language statistics.",
       "completed": "Analysis completed.",
       "cached": "Served from commit-level cache.",
-      "failed": "Analysis failed."
+      "failed": "Analysis failed.",
+      "timedOut": "The analysis is taking too long. You can retry or return to the input."
     },
     "statusShort": {
       "idle": "idle",
@@ -65,19 +78,15 @@
     },
     "log": {
       "idle": "idle: command runner ready",
-      "queuedWaiting": "queued: waiting for worker permit",
-      "refAccepted": "repository ref accepted",
-      "refResolved": "ref resolved",
-      "archiveDownloading": "archive download in progress",
-      "tokeiRunning": "tokei counter running",
-      "stillQueued": "still queued: jobs run one at a time, hang tight",
-      "archiveExtracting": "archive extracting",
-      "stillCounting": "large repository: tokei still counting",
+      "queuedWaiting": "queued: waiting for an analysis worker ({{elapsed}}s)",
+      "stillQueued": "still queued after {{elapsed}}s; jobs run one at a time",
+      "stillCounting": "still running after {{elapsed}}s; large repositories can take longer",
       "resolvedRef": "resolved {{ref}} -> {{sha}}",
       "cacheHit": "cache hit returned",
       "freshReport": "fresh report saved to cache",
       "languageRows": "{{count}} language rows rendered",
-      "counted": "counted {{lines}} lines in {{duration}}ms"
+      "counted": "counted {{lines}} lines in {{duration}}ms",
+      "runningWaiting": "running: the analysis worker is processing this repository ({{elapsed}}s)"
     },
     "command": "octocount analyze {{repo}}{{ref}}{{force}}",
     "cacheHit": "cache hit",
@@ -92,6 +101,8 @@
     "reRun": "re-run",
     "clear": "clear",
     "runDetails": "Run details",
+    "commandLabel": "Command",
+    "moreActions": "More actions",
     "exportPngFailed": "PNG export failed. Retry the export."
   },
   "shareCard": {
@@ -113,7 +124,12 @@
     "copyUrl": "report URL",
     "copyEmbed": "embed iframe",
     "exportPng": "PNG card",
-    "copied": "copied"
+    "copied": "copied",
+    "preview": "Preview",
+    "copyFailed": "Copy failed. Select the link and copy it manually.",
+    "copyFailedShort": "Copy failed",
+    "manualCopyAria": "Report URL for manual copy",
+    "manualContentAria": "Content for manual copy"
   },
   "similarRepos": {
     "ariaLabel": "Similar repositories",
@@ -184,7 +200,10 @@
     "lines": "lines",
     "other": "Other",
     "noData": "No data",
-    "totalLinesTooltip": "{{count}} total lines"
+    "totalLinesTooltip": "{{count}} total lines",
+    "fullStats": "Full statistics",
+    "compactStats": "Compact statistics",
+    "totalCodeTooltip": "{{count}} total code lines"
   },
   "codeHistory": {
     "title": "Lines of Code History",
@@ -192,7 +211,13 @@
     "locAbbrev": "lines",
     "gatheringSloc": "Gathering historical code data… this can take a minute the first time",
     "exportGif": "Export GIF",
-    "gifExportFailed": "GIF export failed. Try again."
+    "gifExportFailed": "GIF export failed. Try again.",
+    "unavailable": "History could not load.",
+    "empty": "No history is available yet.",
+    "retry": "Retry",
+    "dataTable": "History data",
+    "date": "Date",
+    "lines": "Code lines"
   },
   "table": {
     "language": "Language",
@@ -344,7 +369,9 @@
       "top-language": "Top language",
       "ratio": "Code share",
       "language": "Single language"
-    }
+    },
+    "markdownAria": "Badge Markdown output",
+    "defaultConfigNote": "Badges use the requested ref with default analysis options; they do not reproduce custom report options."
   },
   "badgeWall": {
     "kicker": "badges, live",
@@ -358,19 +385,41 @@
     "faqTitle": "Badge FAQ",
     "faqSubtitle": "common questions about README badges",
     "faq": [
-      { "question": "What is an OctoCounts badge?", "answer": "A small live image you embed in a README that shows repository SLOC stats and links to the permanent OctoCounts report page." },
-      { "question": "How do I add a badge to my README?", "answer": "Pick a badge type above, copy the Markdown snippet, and paste it into your README.md where you want the badge to appear." },
-      { "question": "Will the badge slow down my README?", "answer": "No. Badges are lightweight SVG images served by the OctoCounts badge API and are cached by CDN." },
-      { "question": "Can I show a single language instead of the whole repo?", "answer": "Yes. Select 'Single language' in the badge builder and enter the language name, for example Rust or TypeScript." },
-      { "question": "Does the badge update automatically?", "answer": "The badge reflects the latest cached report for the requested ref. Re-analyze the repository or visit its OctoCounts report to refresh the cache." }
-    ]
+      {
+        "question": "What is an OctoCounts badge?",
+        "answer": "A small live image you embed in a README that shows repository SLOC stats and links to the permanent OctoCounts report page."
+      },
+      {
+        "question": "How do I add a badge to my README?",
+        "answer": "Pick a badge type above, copy the Markdown snippet, and paste it into your README.md where you want the badge to appear."
+      },
+      {
+        "question": "Will the badge slow down my README?",
+        "answer": "No. Badges are lightweight SVG images served by the OctoCounts badge API and are cached by CDN."
+      },
+      {
+        "question": "Can I show a single language instead of the whole repo?",
+        "answer": "Yes. Select 'Single language' in the badge builder and enter the language name, for example Rust or TypeScript."
+      },
+      {
+        "question": "Does the badge update automatically?",
+        "answer": "The badge reflects the latest cached report for the requested ref. Re-analyze the repository or visit its OctoCounts report to refresh the cache."
+      }
+    ],
+    "repoLabel": "Repository URL",
+    "repoAria": "Repository URL",
+    "refLabel": "Ref (optional)",
+    "refAria": "Repository ref",
+    "refPlaceholder": "default branch"
   },
   "embedBuilder": {
     "title": "Embed a SLOC card",
     "subtitle": "iframe widget for blogs and docs",
     "description": "Paste this iframe snippet into a blog post or docs page to show the repository's live line counts and language mix, linking back to the full report:",
     "previewAlt": "OctoCounts embed card preview",
-    "copy": "copy iframe"
+    "copy": "copy iframe",
+    "snippetAria": "Embed iframe output",
+    "defaultConfigNote": "Embeds show the latest cached default-branch report and do not carry custom analysis options."
   },
   "embedCard": {
     "ariaLabel": "{{repo}} SLOC summary card",
@@ -392,6 +441,7 @@
     "compareText": "{{left}} vs {{right}} — source lines of code compared by OctoCounts"
   },
   "compare": {
+    "draftChanged": "Inputs changed. Run again to update this result.",
     "title": "Compare Repos",
     "subtitle": "forks, alternatives, or branches",
     "help": "Compare total SLOC, code lines, language mix, and deltas between two public repositories or refs.",
@@ -407,7 +457,8 @@
     "right": "Right",
     "delta": "Delta",
     "copyUrl": "copy URL",
-    "running": "running: analyzing both reports, this can take a minute"
+    "running": "running: analyzing both reports, this can take a minute",
+    "resultPending": "Run a comparison to create a result link."
   },
   "diff": {
     "title": "Ref Diff",
@@ -417,13 +468,13 @@
     "refs": "Refs",
     "base": "base ref",
     "head": "head ref",
-    "run": "Diff"
+    "run": "Diff",
+    "resultPending": "Run a diff to create a result link."
   },
   "growth": {
     "reportsLabel": "Reports",
     "navAria": "Public report pages",
     "footerTagline": "OctoCounts growth loops are built from aggregate public report activity.",
-    "launchKit": "Launch kit",
     "loading": "Loading public report stats...",
     "error": "Stats are temporarily unavailable.",
     "empty": "No reports yet.",
@@ -524,6 +575,18 @@
         "title": "Hall of Monoliths",
         "subtitle": "The largest public repositories OctoCounts has measured, ranked by counted lines."
       }
+    },
+    "pagination": {
+      "ariaLabel": "Report pages",
+      "previous": "Previous",
+      "page": "Page {{page}}",
+      "next": "Next"
+    },
+    "repoCard": {
+      "mixed": "mixed",
+      "code": "code",
+      "trendingFallback": "GitHub Trending repository",
+      "starsToday": "+{{count}} stars today · {{total}} total"
     }
   },
   "textReport": {
@@ -534,5 +597,46 @@
     "comments": "Comments",
     "blanks": "Blanks",
     "total": "Total"
+  },
+  "common": {
+    "skipToContent": "Skip to content"
+  },
+  "reportTools": {
+    "ariaLabel": "Report tools",
+    "title": "Continue with this repository",
+    "subtitle": "Open a focused tool with this repository and ref already selected.",
+    "compare": "Compare this ref",
+    "diff": "Diff this ref",
+    "badges": "Create badges"
+  },
+  "developerTools": {
+    "title": "Developer tools",
+    "subtitle": "Make SLOC reports show up where developers already work.",
+    "items": {
+      "stats": {
+        "title": "Public stats",
+        "text": "Aggregate report totals, language coverage, largest repositories, and source breakdown without user-level tracking."
+      },
+      "action": {
+        "title": "GitHub Action",
+        "text": "Comment SLOC changes on pull requests so reports travel through review workflows."
+      },
+      "cli": {
+        "title": "CLI",
+        "text": "Run OctoCounts from a terminal or CI script and print text or JSON summaries."
+      },
+      "mcp": {
+        "title": "MCP server",
+        "text": "Expose SLOC reports to agent workflows and developer assistants through MCP tools."
+      },
+      "badge": {
+        "title": "README badge",
+        "text": "Add a live SLOC badge that links back to a permanent report page."
+      },
+      "api": {
+        "title": "API",
+        "text": "Use analyze, jobs, reports, badge, SEO, and stats endpoints directly."
+      }
+    }
   }
 }

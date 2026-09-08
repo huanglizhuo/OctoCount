@@ -4,12 +4,12 @@ import { ChromeIcon, EdgeIcon, FirefoxIcon } from "./icons";
 import { defaultRepoUrl, extensionInfo } from "./constants";
 import { AnalyticsEvents, trackEvent } from "./analytics";
 
-export default function BrowserExtensionSection() {
+export default function BrowserExtensionSection({ compact = false }: { compact?: boolean }) {
   const { t } = useTranslation();
-  const features = t("extensionSection.features", { returnObjects: true }) as string[];
+  const features = (t("extensionSection.features", { returnObjects: true }) as string[]).slice(0, compact ? 3 : undefined);
 
   return (
-    <div className="extension-panel">
+    <div className={`extension-panel ${compact ? "extension-panel-compact" : ""}`}>
       <div className="extension-preview">
         <picture>
           <source media="(prefers-color-scheme: dark)" srcSet="/octocounts-dark-card-768.webp 768w, /octocounts-dark-card.webp 1280w" sizes="(max-width: 900px) 100vw, 50vw" />
@@ -29,20 +29,33 @@ export default function BrowserExtensionSection() {
             <ChromeIcon size={15} />
             {t("extensionSection.installChrome")}
           </a>
-          <a className="copybtn install-btn secondary-install" href={extensionInfo.edgeAddOnsUrl} target="_blank" rel="noreferrer" onClick={() => trackEvent(AnalyticsEvents.extensionStoreClick, { store: "edge", placement: "extension_section" })}>
-            <EdgeIcon size={14} />
-            {t("extensionSection.installEdge")}
-          </a>
-          <a className="copybtn install-btn secondary-install" href={extensionInfo.firefoxAddOnsUrl} target="_blank" rel="noreferrer" onClick={() => trackEvent(AnalyticsEvents.extensionStoreClick, { store: "firefox", placement: "extension_section" })}>
-            <FirefoxIcon size={14} />
-            {t("extensionSection.installFirefox")}
-          </a>
-          <a className="copybtn" href={defaultRepoUrl} target="_blank" rel="noreferrer">
-            <ExternalLink size={14} />
-            {t("extensionSection.viewSource")}
-          </a>
+          {compact ? (
+            <details className="extension-other-stores">
+              <summary>{t("hero.otherBrowsers")}</summary>
+              <div>
+                <StoreLink store="edge" label={t("extensionSection.installEdge")} />
+                <StoreLink store="firefox" label={t("extensionSection.installFirefox")} />
+              </div>
+            </details>
+          ) : <>
+            <StoreLink store="edge" label={t("extensionSection.installEdge")} />
+            <StoreLink store="firefox" label={t("extensionSection.installFirefox")} />
+            <a className="copybtn" href={defaultRepoUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={14} />
+              {t("extensionSection.viewSource")}
+            </a>
+          </>}
         </div>
       </div>
     </div>
   );
+}
+
+function StoreLink({ store, label }: { store: "edge" | "firefox"; label: string }) {
+  const href = store === "edge" ? extensionInfo.edgeAddOnsUrl : extensionInfo.firefoxAddOnsUrl;
+  const Icon = store === "edge" ? EdgeIcon : FirefoxIcon;
+  return <a className="copybtn install-btn secondary-install" href={href} target="_blank" rel="noreferrer" onClick={() => trackEvent(AnalyticsEvents.extensionStoreClick, { store, placement: "extension_section" })}>
+    <Icon size={14} />
+    {label}
+  </a>;
 }

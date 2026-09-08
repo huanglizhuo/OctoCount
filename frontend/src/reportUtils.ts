@@ -17,23 +17,16 @@ export function logLines(status: AppStatus, report: Report | null, error: string
   if (status === "failed") return [{ ts: "00:00", kind: "err", text: error ?? i18n.t("runner.status.failed") }];
   if (status === "idle") return [{ ts: "00:00", kind: "", text: i18n.t("runner.log.idle") }];
   if (status === "queued") {
-    const lines = [
-      { ts: "00:01", kind: "warn", text: i18n.t("runner.log.queuedWaiting") },
-      { ts: "00:02", kind: "", text: i18n.t("runner.log.refAccepted") },
-    ];
-    if (elapsedSec >= 8) lines.push({ ts: logTs(elapsedSec), kind: "warn", text: i18n.t("runner.log.stillQueued") });
+    const lines = [{ ts: logTs(elapsedSec), kind: "warn", text: i18n.t("runner.log.queuedWaiting", { elapsed: elapsedSec }) }];
+    if (elapsedSec >= 8) lines.push({ ts: logTs(elapsedSec), kind: "warn", text: i18n.t("runner.log.stillQueued", { elapsed: elapsedSec }) });
     return lines;
   }
   if (status === "running") {
-    const lines = [
-      { ts: "00:01", kind: "ok", text: i18n.t("runner.log.refResolved") },
-      { ts: "00:02", kind: "", text: i18n.t("runner.log.archiveDownloading") },
-    ];
-    if (elapsedSec >= 5) lines.push({ ts: "00:05", kind: "", text: i18n.t("runner.log.archiveExtracting") });
-    lines.push({ ts: elapsedSec >= 5 ? "00:06" : "00:03", kind: "", text: i18n.t("runner.log.tokeiRunning") });
-    if (elapsedSec >= 20) lines.push({ ts: logTs(elapsedSec), kind: "warn", text: i18n.t("runner.log.stillCounting") });
+    const lines = [{ ts: logTs(elapsedSec), kind: "", text: i18n.t("runner.log.runningWaiting", { elapsed: elapsedSec }) }];
+    if (elapsedSec >= 20) lines.push({ ts: logTs(elapsedSec), kind: "warn", text: i18n.t("runner.log.stillCounting", { elapsed: elapsedSec }) });
     return lines;
   }
+
   if (report)
     return [
       {
@@ -165,16 +158,21 @@ export function commandText(repoUrl: string, refName: string, forceRefresh: bool
   });
 }
 
-export function copyText(value: string) {
-  const write = navigator.clipboard?.writeText(value);
-  if (write) {
-    void write.catch(() => fallbackCopyText(value));
-    return;
+export async function copyText(value: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Some embedded/privacy contexts expose Clipboard but reject writes. Fall
+    // through to the legacy path and report its real result to the caller.
   }
-  fallbackCopyText(value);
+  return fallbackCopyText(value);
 }
 
 function fallbackCopyText(value: string) {
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const textarea = document.createElement("textarea");
   textarea.value = value;
   textarea.setAttribute("readonly", "");
@@ -184,11 +182,14 @@ function fallbackCopyText(value: string) {
   document.body.appendChild(textarea);
   textarea.select();
   try {
-    document.execCommand("copy");
+    return document.execCommand("copy");
   } catch {
-    /* Copy is best-effort; UI still keeps the user on the page. */
+    return false;
   } finally {
     textarea.remove();
+    // Selecting the temporary control must not strand keyboard users on a
+    // removed node. Only restore if it is still connected and focusable.
+    if (activeElement?.isConnected) activeElement.focus({ preventScroll: true });
   }
 }
 
@@ -200,19 +201,19 @@ export function downloadDataUrl(dataUrl: string, filename: string) {
 }
 
 export function formatNumber(value: number) {
-  return new Intl.NumberFormat().format(value);
+  return new Intl.NumberFormat(i18n.language).format(value);
 }
 
 export function formatCompactNumber(value: number) {
   if (value <= 99_999) return formatNumber(value);
-  return new Intl.NumberFormat(undefined, {
+  return new Intl.NumberFormat(i18n.language, {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
 }
 
 export function formatPercent(value: number, total: number) {
-  if (total === 0) return "0%";
+  if (value === 0 || total === 0) return "0%";
   const pct = (value / total) * 100;
   if (pct < 0.1) return "<0.1%";
   const fixed = pct.toFixed(1);

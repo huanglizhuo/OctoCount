@@ -52,21 +52,20 @@ test("legacy documentation .html URLs permanently redirect to extensionless cano
   }
 });
 
-test("launch-kit.html permanently redirects to its extensionless canonical", async () => {
-  // The site's own canonical tag, sitemap, and footer links had all
-  // already standardized on the extensionless /launch-kit, but nothing
-  // redirected the old .html URL there — so /launch-kit.html sat as a
-  // second, un-redirected copy with a canonical tag pointing away from
-  // itself. LEGACY_DOC_REDIRECTS closes that the same way the three docs
-  // pages above already do.
-  const response = await onRequest(requestContext("/launch-kit.html"));
-  assert.equal(response.status, 308);
-  assert.equal(response.headers.get("location"), "https://octocounts.com/launch-kit");
+test("legacy launch-kit URLs permanently redirect to the extension guide", async () => {
+  for (const [pathname, canonical] of [
+    ["/launch-kit", "https://octocounts.com/#extension"],
+    ["/launch-kit.html", "https://octocounts.com/#extension"],
+    ["/launch-kit/?lang=zh", "https://octocounts.com/?lang=zh#extension"],
+  ]) {
+    const response = await onRequest(requestContext(pathname));
+    assert.equal(response.status, 308);
+    assert.equal(response.headers.get("location"), canonical);
+  }
 
-  const launchKit = await readFile(new URL("public/launch-kit.html", ROOT), "utf8");
-  assert.match(launchKit, /<link rel="canonical" href="https:\/\/octocounts\.com\/launch-kit" \/>/);
+  const launchKit = await readFile(new URL("../../docs/launch-kit.html", import.meta.url), "utf8");
+  assert.match(launchKit, /Chrome Web Store/);
 });
-
 test("trailing-slash URLs permanently redirect to the slash-free canonical", async () => {
   for (const [pathname, expected] of [
     ["/github/huanglizhuo/OctoCounts/", "https://octocounts.com/github/huanglizhuo/OctoCounts"],
@@ -153,8 +152,9 @@ test("performance assets avoid blocked inline fonts and oversized previews", asy
   assert.doesNotMatch(html, /\/boot\.js/);
   assert.doesNotMatch(html, /octocounts-(?:light|dark)-card\.webp" as="image"/);
   assert.doesNotMatch(styles, /data:font/);
-  assert.doesNotMatch(styles, /@keyframes pipe-packet\s*{[\s\S]*?\bleft:/);
-  assert.match(styles, /@keyframes pipe-packet\s*{[\s\S]*?transform:/);
+  // Pipeline is now static: avoid an always-running decorative animation.
+  assert.doesNotMatch(styles, /@keyframes pipe-packet/);
+  assert.doesNotMatch(styles, /animation:\s*pipe-packet/);
   assert.match(extensionSection, /card-768\.webp 768w/);
   assert.match(extensionSection, /loading="lazy" width="1280" height="800"/);
   assert.match(topbar, /octocounts-logo-96\.webp/);
@@ -256,9 +256,9 @@ test("Pages static HTML uses a strict CSP without disabling compression transfor
   assert.doesNotMatch(response.headers.get("content-security-policy"), /script-src[^;]*'unsafe-inline'/);
 });
 
-test("homepage and launch kit link to the released Edge add-on", async () => {
+test("homepage source and the repository launch kit retain the released Edge add-on", async () => {
   const homepage = await readFile(new URL("index.html", ROOT), "utf8");
-  const launchKit = await readFile(new URL("public/launch-kit.html", ROOT), "utf8");
+  const launchKit = await readFile(new URL("../../docs/launch-kit.html", import.meta.url), "utf8");
   assert.ok(homepage.includes(EDGE_ADD_ON_URL));
   assert.ok(launchKit.includes(EDGE_ADD_ON_URL));
 });

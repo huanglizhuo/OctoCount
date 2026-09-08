@@ -69,9 +69,9 @@ export function RepoHistoryChart({
   owner: string;
   repo: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isGitHub = provider === "github";
-  const { data, isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ["repo-history", provider, owner, repo],
     queryFn: () => fetchRepoHistory(provider, owner, repo),
     enabled: isGitHub,
@@ -80,6 +80,7 @@ export function RepoHistoryChart({
     refetchInterval: (query) => (query.state.data?.slocBackfillInProgress ? BACKFILL_POLL_INTERVAL_MS : false),
   });
 
+  const { data, isLoading } = query;
   const domain = useMemo(() => (data ? timeDomain(data.slocPoints) : null), [data]);
   const coords = useMemo(
     () => (data && domain ? project(data.slocPoints, domain[0], domain[1]) : null),
@@ -92,6 +93,9 @@ export function RepoHistoryChart({
   const [isExportingGif, setIsExportingGif] = useState(false);
   const [gifError, setGifError] = useState<string | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
+  const gifExportRef = useRef<HTMLDivElement>(null);
+  const gifClipRef = useRef<SVGRectElement>(null);
+  const gifCountRef = useRef<SVGTextElement>(null);
   const reduceMotion = useRef(
     typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
@@ -128,11 +132,9 @@ export function RepoHistoryChart({
   }, [coords, currentLines]);
 
   const exportGif = async () => {
-    if (!coords || !chartRef.current) return;
+    if (!coords || !gifExportRef.current) return;
     setIsExportingGif(true);
     setGifError(null);
-    const priorReveal = reveal;
-    const priorCount = displayedLines;
     try {
       const [{ toCanvas }, { GIFEncoder, quantize, applyPalette }] = await Promise.all([
         import("html-to-image"),
@@ -142,12 +144,19 @@ export function RepoHistoryChart({
       const delay = GIF_DURATION_MS / GIF_FRAME_COUNT;
       for (let frame = 0; frame <= GIF_FRAME_COUNT; frame += 1) {
         const progress = frame / GIF_FRAME_COUNT;
-        setReveal(progress);
-        setDisplayedLines(Math.round(currentLines * progress));
-        // Two rAFs: one for React to commit the state update, one for the
-        // browser to actually paint it before html-to-image reads the DOM.
+        // Export from an offscreen SVG. Updating its DOM directly keeps the
+        // interactive chart, tooltip, and its entrance animation untouched.
+        gifClipRef.current?.setAttribute("width", String(PAD.left + PLOT_WIDTH * progress));
+        if (gifCountRef.current) gifCountRef.current.textContent = formatNumber(Math.round(currentLines * progress));
         await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        const canvas = await toCanvas(chartRef.current, { pixelRatio: 1, backgroundColor: "#ffffff" });
+        const canvas = await toCanvas(gifExportRef.current, {
+          pixelRatio: 1,
+          backgroundColor: "#ffffff",
+          // The source is intentionally parked offscreen in the live document.
+          // html-to-image clones it, so reset that positioning on the clone
+          // before rasterizing or every frame is clipped to a blank canvas.
+          style: { position: "static", left: "0", top: "0", transform: "none" },
+        });
         const ctx = canvas.getContext("2d");
         if (!ctx) continue;
         const { data: pixels, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -159,16 +168,11 @@ export function RepoHistoryChart({
       const blob = new Blob([new Uint8Array(gif.bytes())], { type: "image/gif" });
       const url = URL.createObjectURL(blob);
       downloadDataUrl(url, `octocounts-${owner}-${repo}-history.gif`);
-      // A blob: URL is only guaranteed valid for the tab that created it and
-      // is never automatically freed, unlike a data: URL — revoke it once
-      // the download has had a moment to start.
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       trackEvent(AnalyticsEvents.gifExported, { provider, owner, repo });
     } catch {
       setGifError(t("codeHistory.gifExportFailed"));
     } finally {
-      setReveal(priorReveal);
-      setDisplayedLines(priorCount);
       setIsExportingGif(false);
     }
   };
@@ -181,14 +185,14 @@ export function RepoHistoryChart({
       </div>
     );
   }
+  if (query.isError) {
+    return <section className="repo-history repo-history-loading" role="status">{t("codeHistory.unavailable")} <button className="copybtn" type="button" onClick={() => void query.refetch()}>{t("codeHistory.retry")}</button></section>;
+  }
   if (!data || !coords) {
-    // Either the fetch failed, or this is the very first view of this repo's
-    // chart — the SLOC series just started watching and has fewer than two
-    // points (nothing has accumulated since day one yet).
-    return null;
+    return <section className="repo-history repo-history-loading" role="status">{t("codeHistory.empty")}</section>;
   }
 
-  const revealWidth = PLOT_WIDTH * reveal;
+  const revealWidth = PAD.left + PLOT_WIDTH * reveal;
   const hovered = hoverIndex !== null ? coords[hoverIndex] : null;
 
   const handleMove = (event: React.MouseEvent<SVGSVGElement>) => {
@@ -205,6 +209,18 @@ export function RepoHistoryChart({
     });
     setHoverIndex(nearest);
   };
+  const handleTouch = (event: React.TouchEvent<SVGSVGElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((touch.clientX - rect.left) / rect.width) * WIDTH;
+    let nearest = 0;
+    coords.forEach((coord, index) => {
+      if (Math.abs(coord.x - x) < Math.abs(coords[nearest].x - x)) nearest = index;
+    });
+    setHoverIndex(nearest);
+  };
+  const selectIndex = (index: number) => setHoverIndex(Math.max(0, Math.min(coords.length - 1, index)));
 
   return (
     <section className="repo-history" aria-label={t("codeHistory.title")}>
@@ -220,6 +236,15 @@ export function RepoHistoryChart({
           aria-label={t("codeHistory.chartAriaLabel", { count: formatNumber(currentLines) })}
           onMouseMove={handleMove}
           onMouseLeave={() => setHoverIndex(null)}
+          onTouchStart={handleTouch}
+          onTouchMove={handleTouch}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowRight") { event.preventDefault(); selectIndex((hoverIndex ?? -1) + 1); }
+            if (event.key === "ArrowLeft") { event.preventDefault(); selectIndex((hoverIndex ?? coords.length) - 1); }
+            if (event.key === "Home") { event.preventDefault(); selectIndex(0); }
+            if (event.key === "End") { event.preventDefault(); selectIndex(coords.length - 1); }
+          }}
         >
           <defs>
             <clipPath id="repo-history-reveal">
@@ -227,8 +252,8 @@ export function RepoHistoryChart({
             </clipPath>
           </defs>
           <g clipPath="url(#repo-history-reveal)">
-            <path d={areaPath(coords)} className="repo-history-sloc-area" />
-            <path d={linePath(coords)} className="repo-history-sloc-line" />
+            <path d={areaPath(coords)} className="repo-history-sloc-area" fill="#55c878" fillOpacity="0.15" />
+            <path d={linePath(coords)} className="repo-history-sloc-line" stroke="#55d37a" fill="none" strokeWidth="2" />
           </g>
           {hovered ? (
             <>
@@ -243,15 +268,15 @@ export function RepoHistoryChart({
             </>
           ) : null}
           <text x={PAD.left} y={HEIGHT - 6} className="repo-history-axis-label">
-            {coords[0].point.date}
+            {formatHistoryDate(coords[0].point.date, i18n.language)}
           </text>
           <text x={WIDTH - PAD.right} y={HEIGHT - 6} textAnchor="end" className="repo-history-axis-label">
-            {coords[coords.length - 1].point.date}
+            {formatHistoryDate(coords[coords.length - 1].point.date, i18n.language)}
           </text>
         </svg>
         {hovered ? (
-          <div className="repo-history-tooltip" style={{ left: `${(hovered.x / WIDTH) * 100}%` }}>
-            <strong>{formatNumber(hovered.point.totalLines)}</strong> {t("codeHistory.locAbbrev")} &middot; {hovered.point.date}
+          <div className="repo-history-tooltip" style={{ left: `${Math.min(54, Math.max(24, (hovered.x / WIDTH) * 100))}%` }}>
+            <strong>{formatNumber(hovered.point.totalLines)}</strong> {t("codeHistory.locAbbrev")} &middot; {formatHistoryDate(hovered.point.date, i18n.language)}
           </div>
         ) : null}
       </div>
@@ -260,6 +285,28 @@ export function RepoHistoryChart({
           <Loader2 className="spin" size={13} /> {t("codeHistory.gatheringSloc")}
         </div>
       ) : null}
+      <span className="visually-hidden" aria-live="polite">{hovered ? `${formatHistoryDate(hovered.point.date, i18n.language)}: ${formatNumber(hovered.point.totalLines)} ${t("codeHistory.locAbbrev")}` : ""}</span>
+      <details className="repo-history-data">
+        <summary>{t("codeHistory.dataTable")}</summary>
+        <div className="repo-history-data-wrap">
+          <table>
+            <thead><tr><th>{t("codeHistory.date")}</th><th>{t("codeHistory.lines")}</th></tr></thead>
+            <tbody>{coords.map((coord) => <tr key={coord.point.date}><td>{formatHistoryDate(coord.point.date, i18n.language)}</td><td>{formatNumber(coord.point.totalLines)}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </details>
+      <div className="repo-history-export" ref={gifExportRef} aria-hidden="true">
+        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} width={WIDTH} height={HEIGHT}>
+          <defs><clipPath id="repo-history-export-reveal"><rect ref={gifClipRef} x={0} y={0} width={PAD.left} height={HEIGHT} /></clipPath></defs>
+          <g clipPath="url(#repo-history-export-reveal)">
+            <path d={areaPath(coords)} fill="#167a3b" fillOpacity="0.15" />
+            <path d={linePath(coords)} stroke="#167a3b" fill="none" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          </g>
+          <text x={PAD.left} y={HEIGHT - 6} fill="#63706a" fontSize="10">{formatHistoryDate(coords[0].point.date, i18n.language)}</text>
+          <text x={WIDTH - PAD.right} y={HEIGHT - 6} textAnchor="end" fill="#63706a" fontSize="10">{formatHistoryDate(coords[coords.length - 1].point.date, i18n.language)}</text>
+          <text ref={gifCountRef} x={PAD.left} y={20} fill="#183326" fontSize="14" fontWeight="700">0</text>
+        </svg>
+      </div>
       <div className="repo-history-actions">
         <button className="copybtn" disabled={isExportingGif} onClick={() => void exportGif()}>
           {isExportingGif ? <Loader2 className="spin" size={13} /> : <Download size={13} />}
@@ -270,4 +317,9 @@ export function RepoHistoryChart({
       </div>
     </section>
   );
+}
+
+function formatHistoryDate(value: string, locale: string) {
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }).format(date);
 }

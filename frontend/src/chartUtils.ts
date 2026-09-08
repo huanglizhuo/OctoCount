@@ -1,17 +1,18 @@
-import i18n from "./i18n";
 import type { LanguageReport, PieItem } from "./types";
 import { languageColor } from "./reportUtils";
 
-export function languagePieItems(languages: LanguageReport[]): PieItem[] {
-  const sorted = [...languages].filter((language) => language.stats.lines > 0).sort((a, b) => b.stats.lines - a.stats.lines);
+export function languagePieItems(languages: LanguageReport[], otherLabel: string, noDataLabel: string): PieItem[] {
+  // The report table defaults to Code, so the chart and percentages use the
+  // same basis instead of implying that comments/blanks are source language.
+  const sorted = [...languages].filter((language) => language.stats.code > 0).sort((a, b) => b.stats.code - a.stats.code);
   const visible = sorted.slice(0, 5).map((language) => ({
     label: language.name,
-    value: language.stats.lines,
+    value: language.stats.code,
     color: languageColor(language.name),
   }));
-  const other = sorted.slice(5).reduce((sum, language) => sum + language.stats.lines, 0);
-  if (other > 0) visible.push({ label: i18n.t("charts.other"), value: other, color: "var(--fg-mute)" });
-  return visible.length > 0 ? visible : [{ label: i18n.t("charts.noData"), value: 0, color: "var(--fg-mute)" }];
+  const other = sorted.slice(5).reduce((sum, language) => sum + language.stats.code, 0);
+  if (other > 0) visible.push({ label: otherLabel, value: other, color: "var(--fg-mute)" });
+  return visible.length > 0 ? visible : [{ label: noDataLabel, value: 0, color: "var(--fg-mute)" }];
 }
 
 export function pieSlices(items: PieItem[]) {

@@ -27,7 +27,8 @@ const CompareRepos = React.lazy(() => import("./compare").then((m) => ({ default
 const DiffRefs = React.lazy(() => import("./compare").then((m) => ({ default: m.DiffRefs })));
 
 function PageFallback() {
-  return <div className="growth-state" role="status">Loading…</div>;
+  const { t } = useTranslation();
+  return <div className="growth-state" role="status">{t("growth.loading")}</div>;
 }
 
 function RoutedPage({ children }: { children: React.ReactNode }) {
@@ -60,7 +61,7 @@ import {
 import type { AnalysisOptions, AppStatus, GrowthRepositoryStat, GrowthStats, LanguageReport, PieItem, RelatedReport, Report, SortKey, Stats } from "./types";
 import type { JobRecord } from "./types";
 import { useAnalysisRunner } from "./useAnalysisRunner";
-import { SchemeProvider, ThemeSwitch, useScheme } from "./scheme";
+import { SchemeProvider, useScheme } from "./scheme";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -147,9 +148,9 @@ function useElementScale(baseWidth: number) {
   return ref;
 }
 
-function DeferredContent({ children, minHeight = 1, rootMargin = "300px" }: { children: ReactNode; minHeight?: number; rootMargin?: string }) {
+function DeferredContent({ children, rootMargin = "300px" }: { children: ReactNode; rootMargin?: string }) {
   const { ref, isNear } = useNearViewport<HTMLDivElement>(rootMargin);
-  return <div className="deferred-slot" ref={ref} style={{ minHeight }}>{isNear ? children : null}</div>;
+  return <div className="deferred-slot" ref={ref}>{isNear ? children : null}</div>;
 }
 
 // Tracks html[data-scheme] was replaced by the SchemeProvider context — see scheme.tsx.
@@ -213,6 +214,30 @@ function App() {
   // box on report routes; the homepage keeps the full pitch for first-time
   // visitors who have nothing else to look at yet.
   const isReportRoute = routePath.startsWith("/github/");
+  useEffect(() => {
+    let frame = 0;
+    let attempts = 0;
+    const scrollToLandingAnchor = () => {
+      cancelAnimationFrame(frame);
+      const id = window.location.hash.slice(1);
+      if (id !== "extension" && id !== "badges") return;
+      const locate = () => {
+        const target = document.getElementById(id);
+        if (target) {
+          target.scrollIntoView({ block: "start" });
+          return;
+        }
+        if (attempts++ < 12) frame = requestAnimationFrame(locate);
+      };
+      frame = requestAnimationFrame(locate);
+    };
+    scrollToLandingAnchor();
+    window.addEventListener("hashchange", scrollToLandingAnchor);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("hashchange", scrollToLandingAnchor);
+    };
+  }, []);
   if (routePath === "/stats") return <RoutedPage><StatsPage /></RoutedPage>;
   if (routePath === "/recent") return <RoutedPage><ReportListPage kind="recent" /></RoutedPage>;
   if (routePath === "/popular") return <RoutedPage><ReportListPage kind="popular" /></RoutedPage>;
@@ -226,15 +251,13 @@ function App() {
   const initialRequest = useMemo(() => initialRequestFromLocation(), []);
   const [repoUrl, setRepoUrl] = useState(() => initialRequest.repoUrl);
   const [refName, setRefName] = useState(() => initialRequest.refName);
-  // The URL field derives the ref field, so it has to know whether the value
-  // sitting there is worth keeping. `false`: it came from the app — a deep
-  // link's `?ref=`, a sample chip, an earlier URL — and belongs to whichever
-  // URL is in the box, so a new URL may replace it. `true`: the user typed it,
-  // and no keystroke in the URL field may throw it away. A ref rather than
-  // state because nothing renders from it and it is only ever read inside an
-  // event handler.
-  const refTypedByHand = useRef(false);
-  const [analysisOptions, setAnalysisOptions] = useState<AnalysisOptions>(() => defaultAnalysisOptions);
+  const [ambiguousRef, setAmbiguousRef] = useState(() => hasAmbiguousRefPath(initialRequest.repoUrl));
+  // `main` is a homepage suggestion, not a replacement for an intentional
+  // ref. Once someone supplies a ref by hand (including an intentional blank),
+  // opens a report/deep link, or chooses a recent result, URL edits leave that
+  // choice alone. A newly pasted unambiguous tree/commit URL is also explicit.
+  const refIsExplicit = useRef(!initialRequest.usesSuggestedMain);
+  const [analysisOptions, setAnalysisOptions] = useState<AnalysisOptions>(() => initialRequest.analysisOptions ?? defaultAnalysisOptions);
   const {
     report,
     error,
@@ -247,10 +270,16 @@ function App() {
     reset,
   } = useAnalysisRunner({
     repoUrl,
+    // Analyze must use the ref the form displays, even when an empty repository
+    // falls back to the demo repository. defaultRefName remains the runner's
+    // fallback only when the form itself has no ref.
     refName,
     defaultRepoUrl,
     defaultRefName,
-    seedReport,
+    // A server seed represents the default report URL only. A snapshot URL
+    // carries explicit analysis options and must fetch that exact configuration
+    // instead of briefly presenting the unrelated default SSR report.
+    seedReport: initialRequest.analysisOptions ? null : seedReport,
     analysisOptions,
   });
 
@@ -266,11 +295,11 @@ function App() {
     if (report.repository.htmlUrl === defaultRepoUrl) return;
     const entry: RecentEntry = {
       repoUrl: report.repository.htmlUrl,
-      refName: "",
-      label: `${report.repository.owner}/${report.repository.name}`,
+      refName: report.refName,
+      label: `${report.repository.owner}/${report.repository.name}${report.refName ? ` @ ${report.refName}` : ""}`,
     };
     setRecentRepos((current) => {
-      const next = [entry, ...current.filter((item) => item.repoUrl !== entry.repoUrl)].slice(0, RECENT_MAX);
+      const next = [entry, ...current.filter((item) => item.repoUrl !== entry.repoUrl || item.refName !== entry.refName)].slice(0, RECENT_MAX);
       saveRecentRepos(next);
       return next;
     });
@@ -296,7 +325,7 @@ function App() {
     setRepoUrl(entry.repoUrl);
     // A chip owns both fields, so whatever was typed into the ref box is gone
     // on purpose and the next URL edit is free to derive again.
-    refTypedByHand.current = false;
+    refIsExplicit.current = true;
     setRefName(entry.refName);
     void runAnalysis(false, { repoUrl: entry.repoUrl, refName: entry.refName });
   };
@@ -308,7 +337,7 @@ function App() {
       // seed (same data the edge page rendered from, at most 1h old). Skip the
       // auto-run: it would clear the seed, flash the runner, and re-download
       // what the page already has. Force refresh is still available by hand.
-      if (ssrSeed) return;
+      if (ssrSeed && !initialRequest.analysisOptions) return;
       void runAnalysis(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -339,7 +368,7 @@ function App() {
     trackEvent("sample_chip_clicked", { sample: sample.label, provider: providerFromRepoUrl(sample.repoUrl) });
     stopTyping();
     setBusySample(sample.repoUrl);
-    refTypedByHand.current = false;
+    refIsExplicit.current = false;
     setRefName(sample.refName);
     setLastCommand(commandText(sample.repoUrl, sample.refName, false));
     const runSample = () => {
@@ -377,18 +406,18 @@ function App() {
 
   return (
     <>
-      <a className="skip-link" href="#main">Skip to content</a>
+      <a className="skip-link" href="#main">{t("common.skipToContent")}</a>
       <div className="crt flicker" />
       <main id="main" className="page">
         <Topbar />
-        <section className={`hero ${isReportRoute ? "hero-compact" : ""}`} aria-label={t("hero.title")}>
+        <section className={`hero ${isReportRoute ? "hero-compact" : ""}`} aria-labelledby="hero-title">
           <div className="hero-left">
             <TopActions status={status} />
             {isReportRoute ? (
-              <h1 className="title title-compact">OctoCounts</h1>
+              <h1 id="hero-title" className="title title-compact">OctoCounts</h1>
             ) : (
               <>
-                <h1 className="title">
+                <h1 id="hero-title" className="title">
                   <Trans i18nKey="hero.title" components={{ 1: <span className="glow" /> }} />
                 </h1>
                 <p className="subtitle">
@@ -416,30 +445,31 @@ function App() {
                 onCancelTyping={stopTyping}
                 onChange={(next) => {
                   setRepoUrl(next);
-                  // This was `setRefName("main")`, which wrote a ref nobody
-                  // asked for on every keystroke. A repository with no `main`
-                  // branch failed with `ref_not_found` — `git/git`, or anything
-                  // still on `master`/`develop`/`trunk`. A repository that has a
-                  // `main` next to a *different* default branch was worse: the
-                  // ref resolved, so the count came back for a tree the visitor
-                  // never asked about, with no error to notice. The backend only
-                  // substitutes `default_branch` when the ref is blank, so blank
-                  // is the way to ask for it.
-                  //
-                  // Guarded, because the old write was unconditional too: with
-                  // a ref typed by hand in the box, correcting a typo in the
-                  // URL erased the correction on the next keypress. Clearing
-                  // the box releases the guard (see its onChange) — an empty
-                  // field is not a choice to preserve, and holding the guard
-                  // there would leave the URL unable to fill it again.
-                  if (!refTypedByHand.current) setRefName(refFromRepoUrl(next));
+                  setAmbiguousRef(hasAmbiguousRefPath(next));
+                  // Only a fresh homepage suggestion may derive a ref from
+                  // the URL. A hand-entered value — including an intentional
+                  // blank — is a stronger choice than any pasted tree path.
+                  if (!refIsExplicit.current) {
+                    const urlRef = refFromRepoUrl(next);
+                    if (urlRef) {
+                      refIsExplicit.current = true;
+                      setRefName(urlRef);
+                    } else if (hasAmbiguousRefPath(next)) {
+                      // An ambiguous /tree/:ref/path URL asks the backend for
+                      // the repository default branch instead of guessing.
+                      refIsExplicit.current = true;
+                      setRefName("");
+                    } else {
+                      setRefName("main");
+                    }
+                  }
                 }}
                 placeholder={t("hero.placeholderUrl")}
                 ariaLabel={t("hero.ariaUrl")}
               />
               <label className="ref">
                 {t("hero.refLabel")}
-                <input id="repo-ref" name="refName" value={refName} onChange={(event) => { refTypedByHand.current = event.target.value.trim() !== ""; setRefName(event.target.value); }} placeholder={t("hero.refPlaceholder")} aria-label={t("hero.ariaRef")} />
+                <input id="repo-ref" name="refName" value={refName} onChange={(event) => { refIsExplicit.current = true; setRefName(event.target.value); }} placeholder={t("hero.refPlaceholder")} aria-label={t("hero.ariaRef")} />
               </label>
               <button className="btn" disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="spin" size={15} /> : <Play size={15} />}
@@ -447,13 +477,19 @@ function App() {
               </button>
             </form>
             <AnalysisOptionsPanel options={analysisOptions} setOptions={setAnalysisOptions} />
+            {ambiguousRef ? <p className="input-hint" role="status">{t("hero.ambiguousRef")}</p> : null}
             {!isReportRoute && (
               <>
                 <div className="hero-paths" role="group" aria-label={t("hero.sidebarHint")}>
-                  <StoreLink store="chrome" placement="hero" className="btn install-btn" size={15}>{t("hero.installChrome")}</StoreLink>
-                  <StoreLink store="edge" placement="hero" className="copybtn install-btn secondary-install" size={14}>{t("hero.installEdge")}</StoreLink>
-                  <StoreLink store="firefox" placement="hero" className="copybtn install-btn secondary-install" size={14}>{t("hero.installFirefox")}</StoreLink>
                   <span>{t("hero.sidebarHint")}</span>
+                  <StoreLink store="chrome" placement="hero" className="btn install-btn hero-install-primary" size={15}>{t("hero.addToChrome")}</StoreLink>
+                  <details className="hero-other-browsers">
+                    <summary>{t("hero.otherBrowsers")}</summary>
+                    <div>
+                      <StoreLink store="edge" placement="hero" className="copybtn install-btn secondary-install" size={14}>{t("hero.installEdge")}</StoreLink>
+                      <StoreLink store="firefox" placement="hero" className="copybtn install-btn secondary-install" size={14}>{t("hero.installFirefox")}</StoreLink>
+                    </div>
+                  </details>
                 </div>
                 <div className="quick-rows" role="group" aria-label={t("hero.ariaSamples")}>
                   {samples.map((sample) => (
@@ -474,7 +510,7 @@ function App() {
                     {recentRepos.map((entry) => (
                       <button
                         className="chip recent-chip"
-                        key={entry.repoUrl}
+                        key={`${entry.repoUrl}@${entry.refName}`}
                         type="button"
                         title={entry.repoUrl}
                         onClick={() => playRecent(entry)}
@@ -519,14 +555,20 @@ function App() {
           />
         </section>
 
-        <DeferredContent minHeight={260}><PublicReportIndex /></DeferredContent>
+        {!isReportRoute ? <section id="extension" className="extension-promo">
+          <div className="section-h"><h2>{t("extensionSection.title")}</h2><span className="sub">{t("extensionSection.subtitle")}</span></div>
+          <Suspense fallback={null}><BrowserExtensionSection compact /></Suspense>
+        </section> : null}
+
+        {isReportRoute ? <ReportContextTools report={report} repoUrl={repoUrl} refName={refName} /> : <>
+        <DeferredContent><PublicReportIndex /></DeferredContent>
 
         <section id="badges">
           <div className="section-h">
             <h2>{t("badgeBuilder.title")}</h2>
             <span className="sub">{t("badgeBuilder.subtitle")} · <a href="/badges">{t("badgeBuilder.openPage")}</a></span>
           </div>
-          <DeferredContent minHeight={420}>
+          <DeferredContent>
             <BadgeBuilder repoUrl={repoUrl} refName={refName} report={report} />
             <BadgeWall />
           </DeferredContent>
@@ -534,10 +576,10 @@ function App() {
 
         <section>
           <div className="section-h">
-            <h2>Developer tools</h2>
-            <span className="sub">make SLOC reports show up where developers already work</span>
+            <h2>{t("developerTools.title")}</h2>
+            <span className="sub">{t("developerTools.subtitle")}</span>
           </div>
-          <DeferredContent minHeight={320}><DeveloperTools /></DeferredContent>
+          <DeferredContent><DeveloperTools /></DeferredContent>
         </section>
 
         <section>
@@ -545,7 +587,7 @@ function App() {
             <h2>{t("compare.title")}</h2>
             <span className="sub">{t("compare.subtitle")}</span>
           </div>
-          <DeferredContent minHeight={420}><Suspense fallback={null}><CompareRepos /></Suspense></DeferredContent>
+          <DeferredContent><Suspense fallback={null}><CompareRepos /></Suspense></DeferredContent>
         </section>
 
         <section>
@@ -553,17 +595,7 @@ function App() {
             <h2>{t("diff.title")}</h2>
             <span className="sub">{t("diff.subtitle")}</span>
           </div>
-          <DeferredContent minHeight={420}><Suspense fallback={null}><DiffRefs /></Suspense></DeferredContent>
-        </section>
-
-        <section>
-          <div className="section-h">
-            <h2>{t("extensionSection.title")}</h2>
-            <span className="sub">{t("extensionSection.subtitle")}</span>
-          </div>
-          <Suspense fallback={null}>
-            <DeferredContent minHeight={560}><BrowserExtensionSection /></DeferredContent>
-          </Suspense>
+          <DeferredContent><Suspense fallback={null}><DiffRefs /></Suspense></DeferredContent>
         </section>
 
         <section>
@@ -571,7 +603,7 @@ function App() {
             <h2>{t("useCases.title")}</h2>
             <span className="sub">{t("useCases.subtitle")}</span>
           </div>
-          <DeferredContent minHeight={320}>
+          <DeferredContent>
             <div className="how">
               {(t("useCases.cases", { returnObjects: true }) as Array<{ title: string; text: string }>).map((item, idx) => (
                 <div className="step" key={idx}>
@@ -588,7 +620,7 @@ function App() {
             <h2>{t("howItWorks.title")}</h2>
             <span className="sub">{t("howItWorks.subtitle")}</span>
           </div>
-          <DeferredContent minHeight={520}>
+          <DeferredContent>
             <Pipeline />
             <div className="how">
               {(t("howItWorks.steps", { returnObjects: true }) as Array<{ num: string; title: string; text: string; code: string }>).map((step) => (
@@ -605,6 +637,8 @@ function App() {
           </DeferredContent>
         </section>
 
+        </>}
+
         <footer>
           <span>{t("footer.tagline")}</span>
           <span>
@@ -616,7 +650,6 @@ function App() {
             <a href="/badges">{t("footer.badges")}</a> &middot;
             <a href="/stats">{t("growth.nav.stats.label")}</a> &middot;
             <a href="/popular">{t("growth.nav.popular.label")}</a> &middot; <a href="/trending">{t("growth.nav.trending.label")}</a> &middot;
-            <a href="/launch-kit">{t("growth.launchKit")}</a> &middot;
             <Trans i18nKey="footer.builtBy" components={{ 1: <a href="https://github.com/huanglizhuo" target="_blank" rel="noreferrer" /> }} />
             {" "}{t("footer.copyright")}
           </span>
@@ -766,52 +799,47 @@ function SimilarRepos({ report }: { report: Report }) {
   );
 }
 
+function ReportContextTools({ report, repoUrl, refName }: { report: Report | null; repoUrl: string; refName: string }) {
+  const { t } = useTranslation();
+  const targetRepo = report?.repository.htmlUrl || repoUrl;
+  const targetRef = report?.commitSha || report?.refName || refName;
+  const query = new URLSearchParams({ repo: targetRepo });
+  if (targetRef) query.set("ref", targetRef);
+  const compare = new URLSearchParams({ left: targetRepo, right: targetRepo });
+  if (targetRef) { compare.set("leftRef", targetRef); compare.set("rightRef", targetRef); }
+  const diff = new URLSearchParams({ repo: targetRepo, base: targetRef, head: targetRef });
+  return (
+    <section className="report-context-tools" aria-label={t("reportTools.ariaLabel")}>
+      <div className="section-h">
+        <h2>{t("reportTools.title")}</h2>
+        <span className="sub">{t("reportTools.subtitle")}</span>
+      </div>
+      <div className="report-tool-links">
+        <a className="copybtn" href={`/compare?${compare.toString()}`}>{t("reportTools.compare")}</a>
+        <a className="copybtn" href={`/diff?${diff.toString()}`}>{t("reportTools.diff")}</a>
+        <a className="copybtn" href={`/badges?${query.toString()}`}>{t("reportTools.badges")}</a>
+      </div>
+    </section>
+  );
+}
+
 function DeveloperTools() {
+  const { t } = useTranslation();
   const tools = [
-    {
-      title: "Public stats",
-      text: "Aggregate report totals, language coverage, largest repos, and source breakdown without user-level tracking.",
-      command: "open https://octocounts.com/stats",
-      href: "/stats",
-    },
-    {
-      title: "GitHub Action",
-      text: "Comment SLOC changes on pull requests so reports travel through review workflows.",
-      command: "uses: huanglizhuo/OctoCounts/action@main",
-      href: "https://github.com/huanglizhuo/OctoCounts/tree/main/action",
-    },
-    {
-      title: "CLI",
-      text: "Run OctoCounts from a terminal or CI script and print text or JSON summaries.",
-      command: "npx octocounts https://github.com/owner/repo --json",
-      href: "https://github.com/huanglizhuo/OctoCounts/tree/main/cli",
-    },
-    {
-      title: "MCP server",
-      text: "Expose SLOC reports to agent workflows and developer assistants through MCP tools.",
-      command: "npx octocounts-mcp",
-      href: "https://github.com/huanglizhuo/OctoCounts/tree/main/mcp",
-    },
-    {
-      title: "README badge",
-      text: "Add a live SLOC badge that links back to a permanent report page.",
-      command: "[![SLOC](https://api.octocounts.com/badge/:owner/:repo)](...)",
-      href: "/badges",
-    },
-    {
-      title: "API",
-      text: "Use analyze, jobs, reports, badge, SEO, and stats endpoints directly.",
-      command: "GET https://api.octocounts.com/api/stats",
-      href: "/docs/api",
-    },
+    { key: "stats", command: "open https://octocounts.com/stats", href: "/stats" },
+    { key: "action", command: "uses: huanglizhuo/OctoCounts/action@main", href: "https://github.com/huanglizhuo/OctoCounts/tree/main/action" },
+    { key: "cli", command: "npx octocounts https://github.com/owner/repo --json", href: "https://github.com/huanglizhuo/OctoCounts/tree/main/cli" },
+    { key: "mcp", command: "npx octocounts-mcp", href: "https://github.com/huanglizhuo/OctoCounts/tree/main/mcp" },
+    { key: "badge", command: "[![SLOC](https://api.octocounts.com/badge/:owner/:repo)](...)", href: "/badges" },
+    { key: "api", command: "GET https://api.octocounts.com/api/stats", href: "/docs/api" },
   ];
 
   return (
     <div className="developer-tools">
       {tools.map((tool) => (
-        <a className="developer-tool" href={tool.href} key={tool.title}>
-          <span className="chart-tag">{tool.title}</span>
-          <p>{tool.text}</p>
+        <a className="developer-tool" href={tool.href} key={tool.key}>
+          <span className="chart-tag">{t(`developerTools.items.${tool.key}.title`)}</span>
+          <p>{t(`developerTools.items.${tool.key}.text`)}</p>
           <code>{tool.command}</code>
         </a>
       ))}
@@ -881,17 +909,17 @@ function TopActions({ status }: { status: AppStatus }) {
   const { t } = useTranslation();
   return (
     <div className="top-actions">
-      <ThemeSwitch />
       <span className="pill"><span className={`dot ${status === "idle" ? "idle" : ""}`} />{t("runner.statusShort." + status)}</span>
     </div>
   );
 }
 
 function Runner({ command, status, report, error, errorCode, onReset, onRerun }: { command: string; status: AppStatus; report: Report | null; error: string | null; errorCode?: string; onReset: () => void; onRerun: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const shareCardRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const { copiedKey: copiedCta, showCopied: showCopiedCta } = useCopied();
 
   const isWorking = status === "queued" || status === "running";
@@ -958,6 +986,7 @@ function Runner({ command, status, report, error, errorCode, onReset, onRerun }:
         width: 1200,
         height: 630,
         backgroundColor: "#050a06",
+        style: { transform: "none", transformOrigin: "top left" },
       });
       downloadDataUrl(dataUrl, `octocount-${report.repository.owner}-${report.repository.name}-${report.commitSha.slice(0, 12)}.png`);
       trackEvent(AnalyticsEvents.pngExported, { provider: normalizedProvider(report) });
@@ -1000,13 +1029,14 @@ function Runner({ command, status, report, error, errorCode, onReset, onRerun }:
       ) : null}
       <div className="runner-head" ref={headRef}>
         <div className="left">
+          {report ? <strong className="runner-repo">{report.repository.owner}/{report.repository.name}</strong> : null}
           <span className="pill"><span className={`dot ${status === "idle" ? "idle" : ""}`} />{t("runner.statusShort." + status)}</span>
-          <code>$ {command}</code>
+          {report ? <details className="runner-command"><summary>{t("runner.commandLabel")}</summary><code>$ {command}</code></details> : <code>$ {command}</code>}
         </div>
         <div className="row-flex">
           {report ? (
             <span>
-              {report.refName} / {report.commitSha.slice(0, 12)} /{" "}
+              {report.refName} / {report.commitSha.slice(0, 12)} / {new Date(report.generatedAt).toLocaleString(i18n.language)} /{" "}
               {report.cached
                 ? <b className="cache-flex">{t("runner.cacheHit")} · {report.durationMs}ms</b>
                 : <>{t("runner.freshRun")} / <b className="speed-val">{report.durationMs}ms</b></>}
@@ -1035,38 +1065,45 @@ function Runner({ command, status, report, error, errorCode, onReset, onRerun }:
             copiedCta={copiedCta}
             isExporting={isExporting}
             exportError={exportError}
+            copyError={copyError}
             onCopyUrl={() => {
-              copyText(buildCanonicalReportUrl(report, report.refName));
+              void copyText(buildSnapshotReportUrl(report)).then((copied) => {
+                if (!copied) { setCopyError(t("reportCta.copyFailed")); return; }
+                setCopyError(null);
+                showCopiedCta("url");
+              });
               trackEvent(AnalyticsEvents.reportUrlCopied, { provider: normalizedProvider(report), placement: "share_showcase" });
-              showCopiedCta("url");
             }}
             onExportPng={() => void exportPng()}
           />
           <ReportUtilityActions
             report={report}
             copiedCta={copiedCta}
-            onCopyBadge={() => {
-              const url = buildCanonicalReportUrl(report, report.refName);
+            onCopyBadge={async () => {
+              const url = buildSnapshotReportUrl(report);
               const badgeUrl = normalizedProvider(report) === "github"
                 ? buildBadgeUrl(report.repository.owner, report.repository.name, report.refName, "summary", "")
                 : "";
-              if (!badgeUrl) return;
-              copyText(`[![OctoCounts](${badgeUrl})](${url})`);
-              trackEvent(AnalyticsEvents.badgeMarkdownCopied, { provider: "github", placement: "report_utility" });
-              showCopiedCta("badge");
+              if (!badgeUrl) return false;
+              const copied = await copyText(`[![OctoCounts](${badgeUrl})](${url})`);
+              if (copied) { showCopiedCta("badge"); trackEvent(AnalyticsEvents.badgeMarkdownCopied, { provider: "github", placement: "report_utility" }); }
+              return copied;
             }}
-            onCopyEmbed={() => {
+            onCopyEmbed={async () => {
               const provider = normalizedProvider(report);
-              copyText(buildEmbedSnippet(buildEmbedUrl(provider, report.repository.owner, report.repository.name)));
-              trackEvent(AnalyticsEvents.embedSnippetCopied, { provider, placement: "report_utility" });
-              showCopiedCta("embed");
+              const copied = await copyText(buildEmbedSnippet(buildEmbedUrl(provider, report.repository.owner, report.repository.name)));
+              if (copied) { showCopiedCta("embed"); trackEvent(AnalyticsEvents.embedSnippetCopied, { provider, placement: "report_utility" }); }
+              return copied;
             }}
-            onExportText={() => { copyText(textReport(report)); trackEvent("report_text_copied", { provider: normalizedProvider(report) }); }}
-            onExportJson={() => { copyText(JSON.stringify(report, null, 2)); trackEvent("report_json_copied", { provider: normalizedProvider(report) }); }}
+            onExportText={async () => { const copied = await copyText(textReport(report)); if (copied) trackEvent("report_text_copied", { provider: normalizedProvider(report) }); return copied; }}
+            onExportJson={async () => { const copied = await copyText(JSON.stringify(report, null, 2)); if (copied) trackEvent("report_json_copied", { provider: normalizedProvider(report) }); return copied; }}
             onRerun={onRerun}
             onReset={onReset}
           />
-          <TrustDetails report={report} stars={liveStars ?? report.repository.stars ?? null} />
+          <details className="report-details">
+            <summary>{t("trust.title")}</summary>
+            <TrustDetails report={report} stars={liveStars ?? report.repository.stars ?? null} />
+          </details>
           <RepoHistoryChart
             provider={normalizedProvider(report)}
             owner={report.repository.owner}
@@ -1094,6 +1131,7 @@ function ShareShowcase({
   copiedCta,
   isExporting,
   exportError,
+  copyError,
   onCopyUrl,
   onExportPng,
 }: {
@@ -1103,11 +1141,13 @@ function ShareShowcase({
   copiedCta: string | null;
   isExporting: boolean;
   exportError: string | null;
+  copyError: string | null;
   onCopyUrl: () => void;
   onExportPng: () => void;
 }) {
   const { t } = useTranslation();
   const cardWrapRef = useElementScale(1200);
+  const [previewOpen, setPreviewOpen] = useState(() => !window.matchMedia("(max-width: 720px)").matches);
   return (
     <section id="share-showcase" className="share-showcase" aria-label={t("reportCta.ariaLabel")}>
       <div className="share-showcase-head">
@@ -1116,26 +1156,29 @@ function ShareShowcase({
         <span>{t("reportCta.subtitle")}</span>
       </div>
       <div className="share-showcase-body">
-        <div className="share-showcase-card" ref={cardWrapRef}>
-          <ShareTickerCard ref={cardRef} report={report} stars={stars} />
-        </div>
+        <details className="share-preview" open={previewOpen} onToggle={(event) => setPreviewOpen(event.currentTarget.open)}>
+          <summary>{t("reportCta.preview")}</summary>
+          <div className="share-showcase-card" ref={cardWrapRef}>
+            <ShareTickerCard ref={cardRef} report={report} stars={stars} />
+          </div>
+        </details>
         <div className="share-showcase-actions">
           <div className="row-flex">
             <button className="btn install-btn" type="button" onClick={onCopyUrl}>
               <Clipboard size={14} />
               {copiedCta === "url" ? t("reportCta.copied") : t("reportCta.copyUrl")}
             </button>
-            <button className="btn install-btn" type="button" disabled={isExporting} onClick={onExportPng}>
+            <button className="copybtn" type="button" disabled={isExporting} onClick={onExportPng}>
               <Download size={14} />
               {t("reportCta.exportPng")}
             </button>
           </div>
           <ShareButtons
-            url={buildCanonicalReportUrl(report, report.refName)}
+            url={buildSnapshotReportUrl(report)}
             text={t("share.reportText", { repo: `${report.repository.owner}/${report.repository.name}`, code: formatNumber(report.total.code) })}
             placement="report"
           />
-          {exportError ? <p className="export-error" role="alert">{exportError}</p> : null}
+          {exportError || copyError ? <div className="export-error" role="alert"><p>{exportError ?? copyError}</p>{copyError ? <textarea className="manual-copy" readOnly value={buildSnapshotReportUrl(report)} aria-label={t("reportCta.manualCopyAria")} onFocus={(event) => event.currentTarget.select()} /> : null}</div> : null}
         </div>
       </div>
     </section>
@@ -1159,35 +1202,46 @@ function ReportUtilityActions({
 }: {
   report: Report;
   copiedCta: string | null;
-  onCopyBadge: () => void;
-  onCopyEmbed: () => void;
-  onExportText: () => void;
-  onExportJson: () => void;
+  onCopyBadge: () => Promise<boolean>;
+  onCopyEmbed: () => Promise<boolean>;
+  onExportText: () => Promise<boolean>;
+  onExportJson: () => Promise<boolean>;
   onRerun: () => void;
   onReset: () => void;
 }) {
   const { t } = useTranslation();
   const isGitHub = normalizedProvider(report) === "github";
+  const [copyFeedback, setCopyFeedback] = useState<"copied" | "failed" | null>(null);
+  const [manualCopyValue, setManualCopyValue] = useState<string | null>(null);
+  const runCopy = async (action: () => Promise<boolean>, fallbackValue?: string) => {
+    const copied = await action();
+    setCopyFeedback(copied ? "copied" : "failed");
+    setManualCopyValue(copied ? null : fallbackValue ?? null);
+  };
 
   return (
     <div className="runner-foot">
-      <span>{t("runner.generated", { date: new Date(report.generatedAt).toLocaleString(), duration: report.durationMs, version: report.tokeiVersion })}</span>
+      <span>{t("runner.generated", { date: new Date(report.generatedAt).toLocaleString(i18n.language), duration: report.durationMs, version: report.tokeiVersion })}</span>
       <div className="actions">
         {isGitHub ? (
-          <button className="copybtn" type="button" onClick={onCopyBadge}>
+          <button className="copybtn" type="button" onClick={() => void runCopy(onCopyBadge)}>
             <Clipboard size={14} />
             {copiedCta === "badge" ? t("reportCta.copied") : t("reportCta.copyBadge")}
           </button>
         ) : null}
-        <button className="copybtn" type="button" onClick={onCopyEmbed}>
+        <button className="copybtn" type="button" onClick={() => void runCopy(onCopyEmbed)}>
           <Clipboard size={14} />
           {copiedCta === "embed" ? t("reportCta.copied") : t("reportCta.copyEmbed")}
         </button>
-        <button className="copybtn" onClick={onExportText}><Clipboard size={14} /> {t("runner.exportText")}</button>
-        <button className="copybtn" onClick={onExportJson}><FileJson size={14} /> {t("runner.exportJson")}</button>
-        <a className="copybtn" href={report.repository.htmlUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> {t("runner.exportGitHub")}</a>
-        <button className="copybtn" onClick={onRerun}><RotateCcw size={14} /> {t("runner.reRun")}</button>
-        <button className="copybtn" onClick={onReset}>{t("runner.clear")}</button>
+        <details className="utility-more"><summary>{t("runner.moreActions")}</summary><div>
+          <button className="copybtn" onClick={() => void runCopy(onExportText, textReport(report))}><Clipboard size={14} /> {t("runner.exportText")}</button>
+          <button className="copybtn" onClick={() => void runCopy(onExportJson, JSON.stringify(report, null, 2))}><FileJson size={14} /> {t("runner.exportJson")}</button>
+          <a className="copybtn" href={report.repository.htmlUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> {t("runner.exportGitHub")}</a>
+          <button className="copybtn" onClick={onRerun}><RotateCcw size={14} /> {t("runner.reRun")}</button>
+          <button className="copybtn" onClick={onReset}>{t("runner.clear")}</button>
+        </div></details>
+        {copyFeedback ? <span className="copy-feedback" role="status">{copyFeedback === "copied" ? t("reportCta.copied") : t("reportCta.copyFailedShort")}</span> : null}
+        {manualCopyValue ? <textarea className="manual-copy utility-manual-copy" readOnly value={manualCopyValue} aria-label={t("reportCta.manualContentAria")} onFocus={(event) => event.currentTarget.select()} /> : null}
       </div>
     </div>
   );
@@ -1319,6 +1373,11 @@ function ShareStat({ color, label, value }: { color: string; label: string; valu
 
 function AnalysisOptionsPanel({ options, setOptions }: { options: AnalysisOptions; setOptions: (options: AnalysisOptions) => void }) {
   const { t } = useTranslation();
+  // Keep what the person is typing separate from its parsed value. Rebuilding
+  // the field from `split(',')` on each keystroke used to eat commas/spaces and
+  // move the caret, making a normal `examples, fixtures` entry impossible.
+  const [ignoredDirsDraft, setIgnoredDirsDraft] = useState(() => options.ignoredDirs.join(", "));
+  const [ignoredLanguagesDraft, setIgnoredLanguagesDraft] = useState(() => options.ignoredLanguages.join(", "));
   const update = (patch: Partial<AnalysisOptions>) => setOptions({ ...options, ...patch });
   return (
     <details className="analysis-options">
@@ -1333,11 +1392,11 @@ function AnalysisOptionsPanel({ options, setOptions }: { options: AnalysisOption
         </label>
         <label>
           <span>{t("analysisOptions.ignoredDirs")}</span>
-          <input name="ignoredDirs" value={options.ignoredDirs.join(", ")} onChange={(event) => update({ ignoredDirs: csvList(event.target.value) })} placeholder="examples, fixtures" />
+          <input name="ignoredDirs" value={ignoredDirsDraft} onChange={(event) => { setIgnoredDirsDraft(event.target.value); update({ ignoredDirs: csvList(event.target.value) }); }} onBlur={() => update({ ignoredDirs: csvList(ignoredDirsDraft) })} placeholder="examples, fixtures" />
         </label>
         <label>
           <span>{t("analysisOptions.ignoredLanguages")}</span>
-          <input name="ignoredLanguages" value={options.ignoredLanguages.join(", ")} onChange={(event) => update({ ignoredLanguages: csvList(event.target.value) })} placeholder="Markdown, JSON" />
+          <input name="ignoredLanguages" value={ignoredLanguagesDraft} onChange={(event) => { setIgnoredLanguagesDraft(event.target.value); update({ ignoredLanguages: csvList(event.target.value) }); }} onBlur={() => update({ ignoredLanguages: csvList(ignoredLanguagesDraft) })} placeholder="Markdown, JSON" />
         </label>
         <div className="analysis-toggles">
           <label><input type="checkbox" name="includeDocs" checked={options.includeDocs} onChange={(event) => update({ includeDocs: event.target.checked })} />{t("analysisOptions.includeDocs")}</label>
@@ -1397,6 +1456,16 @@ function refFromRepoUrl(value: string) {
   }
 }
 
+function hasAmbiguousRefPath(value: string) {
+  try {
+    const url = new URL(value.trim());
+    const segments = url.pathname.split("/").filter(Boolean);
+    return url.hostname === "github.com" && segments.length > 4 && githubRefMarkers.has(segments[2]);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * `url.pathname` is percent-encoded, but the ref goes to the API as data and is
  * re-encoded by `encodeRefPath` on the way into links. Decoded here it matches
@@ -1419,12 +1488,35 @@ function initialRequestFromLocation() {
   const params = new URLSearchParams(window.location.search);
   const queryRepo = params.get("q") ?? params.get("url");
   const queryRef = params.get("ref") ?? "";
-  if (queryRepo) return { repoUrl: queryRepo, refName: queryRef };
+  const analysisOptions = optionsFromSnapshotParam(params.get("analysis"));
+  if (queryRepo) return { repoUrl: queryRepo, refName: queryRef, analysisOptions };
 
   const route = parsePublicReportPath(window.location.pathname);
-  if (route) return route;
+  if (route) return { ...route, analysisOptions };
 
-  return { repoUrl: "", refName: "" };
+  // Only a brand-new homepage form receives the product's `main`
+  // suggestion. Query and report routes keep blank refs meaningful: they ask
+  // the provider to resolve its actual default branch.
+  return { repoUrl: "", refName: "main", analysisOptions, usesSuggestedMain: true };
+}
+
+function optionsFromSnapshotParam(value: string | null): AnalysisOptions | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<AnalysisOptions>;
+    if (parsed.profile !== "default" && parsed.profile !== "source-only") return null;
+    if (!Array.isArray(parsed.ignoredDirs) || !Array.isArray(parsed.ignoredLanguages)) return null;
+    return {
+      profile: parsed.profile,
+      ignoredDirs: parsed.ignoredDirs.filter((item): item is string => typeof item === "string"),
+      ignoredLanguages: parsed.ignoredLanguages.filter((item): item is string => typeof item === "string"),
+      includeDocs: typeof parsed.includeDocs === "boolean" ? parsed.includeDocs : true,
+      includeTests: typeof parsed.includeTests === "boolean" ? parsed.includeTests : true,
+      includeGenerated: typeof parsed.includeGenerated === "boolean" ? parsed.includeGenerated : true,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeReport(report: Report): Report {
@@ -1511,6 +1603,21 @@ function buildCanonicalReportUrl(report: Report, ref: string) {
   return `${window.location.origin}/?${params.toString()}`;
 }
 
+// Canonical URLs stay clean for search. Shared URLs deliberately pin the
+// resolved commit and include the user-visible counting options, so reopening
+// one can reproduce this report instead of silently recounting a branch with
+// default options.
+function buildSnapshotReportUrl(report: Report) {
+  const provider = normalizedProvider(report);
+  const ref = report.commitSha || report.refName;
+  const base = provider === "github" || provider === "gitlab"
+    ? buildPublicReportUrl(report.repository.owner, report.repository.name, ref, provider)
+    : buildCanonicalReportUrl(report, ref);
+  const params = new URLSearchParams();
+  params.set("analysis", JSON.stringify(report.analysisOptions));
+  return `${base}?${params.toString()}`;
+}
+
 function buildCanonicalUrlForParsedRepo(parsed: { owner: string; repo: string; host?: string }, repoUrl: string, ref: string) {
   if (parsed.host === "github.com") {
     return buildPublicReportUrl(parsed.owner, parsed.repo, ref, "github");
@@ -1591,9 +1698,9 @@ function Summary({ stats }: { stats: Stats }) {
   const { t } = useTranslation();
   return (
     <div className="summary">
+      <Metric label={t("summary.code")} value={stats.code} accent />
       <Metric label={t("summary.files")} value={stats.files} />
       <Metric label={t("summary.lines")} value={stats.lines} />
-      <Metric label={t("summary.code")} value={stats.code} accent />
       <Metric label={t("summary.comments")} value={stats.comments} />
       <Metric label={t("summary.blanks")} value={stats.blanks} />
     </div>
@@ -1659,20 +1766,22 @@ function projectScale(codeLines: number) {
 }
 
 function Metric({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
-  return <div className={`cell ${accent ? "accent" : ""}`}><div className="lbl">{label}</div><div className="val">{formatNumber(value)}</div></div>;
+  const exact = formatNumber(value);
+  return <div className={`cell ${accent ? "accent" : ""}`}><div className="lbl">{label}</div><div className="val" title={exact}>{formatCompactNumber(value)}</div></div>;
 }
 
 function Charts({ report }: { report: Report }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const scheme = useScheme();
-  const languageItems = useMemo(() => languagePieItems(report.languages), [report.languages]);
+  const languageItems = useMemo(() => languagePieItems(report.languages, t("charts.other"), t("charts.noData")), [report.languages, i18n.language, t]);
   // Lift near-black language colors so slices/swatches stay visible on the dark scheme.
   const visibleItems = useMemo(
     () => languageItems.map((item) => ({ ...item, color: visibleLanguageColor(item.color, scheme) })),
     [languageItems, scheme],
   );
-  const totalLines = report.total.lines;
+  const totalLines = report.total.code;
   const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
+  const [showFullStats, setShowFullStats] = useState(false);
   const otherLabel = t("charts.other");
   const sliceLabels = useMemo(() => new Set(visibleItems.map((item) => item.label)), [visibleItems]);
   const sliceForLanguage = useCallback(
@@ -1683,18 +1792,23 @@ function Charts({ report }: { report: Report }) {
     (name: string | null) => setHoveredSlice(name === null ? null : sliceForLanguage(name)),
     [sliceForLanguage],
   );
+  const leading = [...report.languages].sort((a, b) => b.stats.code - a.stats.code)[0];
 
   return (
-    <div className="charts-grid">
+    <>
+      {leading ? <div className="mobile-code-summary"><span>{leading.name}</span><strong>{formatNumber(leading.stats.code)} {t("table.code")}</strong><em>{formatPercent(leading.stats.code, report.total.code)}</em></div> : null}
+      <button type="button" className="full-stats-toggle copybtn" onClick={() => setShowFullStats((value) => !value)} aria-expanded={showFullStats}>{showFullStats ? t("charts.compactStats") : t("charts.fullStats")}</button>
+      <div className="charts-grid">
       <div className="chart-card donut-card">
         <div className="chart-h"><span className="chart-tag">chart</span>{t("charts.languageShare")}</div>
         <Donut items={visibleItems} total={totalLines} hovered={hoveredSlice} onHover={setHoveredSlice} />
       </div>
       <div className="chart-card table-card">
         <div className="chart-h"><span className="chart-tag">table</span>{t("charts.report")}</div>
-        <ReportTable report={report} compact hoveredSlice={hoveredSlice} sliceForLanguage={sliceForLanguage} onHoverLanguage={onHoverLanguage} />
+        <ReportTable report={report} compact={!showFullStats} fullStats={showFullStats} hoveredSlice={hoveredSlice} sliceForLanguage={sliceForLanguage} onHoverLanguage={onHoverLanguage} />
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -1717,8 +1831,8 @@ function Donut({ items, total, hovered, onHover }: { items: PieItem[]; total: nu
           ))}
           <circle r="0.58" fill="var(--bg-2)" />
         </svg>
-        <div className="donut-center" title={t("charts.totalLinesTooltip", { count: exactTotal })}>
-          <span className="mute">{t("charts.lines")}</span>
+        <div className="donut-center" title={t("charts.totalCodeTooltip", { count: exactTotal })}>
+          <span className="mute">{t("table.code")}</span>
           <strong>{formatCompactNumber(total)}</strong>
         </div>
       </div>
@@ -1769,7 +1883,7 @@ function persistSortInLocation(key: SortKey, dir: "asc" | "desc") {
   window.history.replaceState(null, "", window.location.pathname + (query ? `?${query}` : ""));
 }
 
-function ReportTable({ report, compact, hoveredSlice, sliceForLanguage, onHoverLanguage }: { report: Report; compact?: boolean; hoveredSlice?: string | null; sliceForLanguage?: (name: string) => string | null; onHoverLanguage?: (name: string | null) => void }) {
+function ReportTable({ report, compact, fullStats, hoveredSlice, sliceForLanguage, onHoverLanguage }: { report: Report; compact?: boolean; fullStats?: boolean; hoveredSlice?: string | null; sliceForLanguage?: (name: string) => string | null; onHoverLanguage?: (name: string | null) => void }) {
   const { t } = useTranslation();
   const initialSort = useMemo(() => initialSortFromLocation(), []);
   const [sortKey, setSortKey] = useState<SortKey>(initialSort.key);
@@ -1799,7 +1913,7 @@ function ReportTable({ report, compact, hoveredSlice, sliceForLanguage, onHoverL
   }, []);
 
   return (
-    <div className={`table-wrap ${compact ? "compact" : ""}`}>
+    <div className={`table-wrap ${compact ? "compact" : ""} ${fullStats ? "is-full-stats" : ""}`}>
       <table className="report">
         <thead>
           <tr>
@@ -1814,12 +1928,13 @@ function ReportTable({ report, compact, hoveredSlice, sliceForLanguage, onHoverL
             <React.Fragment key={row.name}>
               <LanguageRow
                 row={row}
+                totalCode={report.total.code}
                 expanded={expanded.has(row.name)}
                 onToggle={toggle}
                 highlighted={Boolean(hoveredSlice && sliceForLanguage?.(row.name) === hoveredSlice)}
                 onHover={onHoverLanguage}
               />
-              {expanded.has(row.name) && row.children.map((child) => <LanguageRow key={`${row.name}:${child.name}`} row={child} child />)}
+              {expanded.has(row.name) && row.children.map((child) => <LanguageRow key={`${row.name}:${child.name}`} row={child} child totalCode={report.total.code} />)}
             </React.Fragment>
           ))}
           <tr className="totals">
@@ -1850,7 +1965,7 @@ function SortHead({ label, active, dir, onClick, className }: { label: string; a
   );
 }
 
-const LanguageRow = React.memo(function LanguageRow({ row, expanded, child, onToggle, highlighted, onHover }: { row: LanguageReport; expanded?: boolean; child?: boolean; onToggle?: (name: string) => void; highlighted?: boolean; onHover?: (name: string | null) => void }) {
+const LanguageRow = React.memo(function LanguageRow({ row, totalCode, expanded, child, onToggle, highlighted, onHover }: { row: LanguageReport; totalCode: number; expanded?: boolean; child?: boolean; onToggle?: (name: string) => void; highlighted?: boolean; onHover?: (name: string | null) => void }) {
   const { t } = useTranslation();
   const scheme = useScheme();
   const hasChildren = row.children.length > 0;
@@ -1877,15 +1992,15 @@ const LanguageRow = React.memo(function LanguageRow({ row, expanded, child, onTo
       </td>
       <NumberCell value={row.stats.files} />
       <NumberCell value={row.stats.lines} />
-      <NumberCell value={row.stats.code} />
+      <NumberCell value={row.stats.code} share={formatPercent(row.stats.code, totalCode)} />
       <NumberCell value={row.stats.comments} />
       <NumberCell value={row.stats.blanks} />
     </tr>
   );
 });
 
-function NumberCell({ value }: { value: number }) {
-  return <td>{formatNumber(value)}</td>;
+function NumberCell({ value, share }: { value: number; share?: string }) {
+  return <td><span>{formatNumber(value)}</span>{share ? <small className="mobile-code-share">{share}</small> : null}</td>;
 }
 
 // Wait for the locale bundle (lazy zh chunk) before first render.

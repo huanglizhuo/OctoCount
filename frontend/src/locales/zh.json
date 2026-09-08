@@ -8,10 +8,19 @@
     "chrome": "Chrome",
     "edge": "Edge",
     "firefox": "Firefox",
-    "githubAria": "在 GitHub 上查看 OctoCounts"
+    "githubAria": "在 GitHub 上查看 OctoCounts",
+    "navigation": "主导航",
+    "analyze": "分析",
+    "explore": "探索",
+    "tools": "工具",
+    "install": "安装",
+    "installExtension": "安装扩展",
+    "compare": "比较仓库",
+    "diff": "比较引用",
+    "badges": "徽章与嵌入"
   },
   "hero": {
-    "title": "GitHub <1>SLOC 计数器</1>：GitHub 忘记添加的面板。",
+    "title": "GitHub <1>代码统计</1>，一目了然。",
     "subtitle": "安装浏览器扩展，直接在 GitHub 仓库侧边栏查看 SLOC，或者在此粘贴公开 GitHub 仓库链接获取完整报告。由 <1>tokei</1> 驱动，无需克隆。",
     "definition": "OctoCounts 是一款免费的公开 GitHub 仓库 SLOC 计数器。无需克隆，即可显示文件数、总行数、代码行、注释行、空行以及各语言统计。",
     "freshnessLabel": "最后更新",
@@ -30,7 +39,10 @@
     "installChrome": "Chrome 应用商店",
     "installEdge": "Microsoft Edge 加载项",
     "installFirefox": "Firefox（GitHub 下载）",
-    "sidebarHint": "直接在 GitHub 仓库侧边栏查看 SLOC。"
+    "addToChrome": "安装 Chrome 扩展",
+    "sidebarHint": "直接在 GitHub 仓库侧边栏查看 SLOC。",
+    "otherBrowsers": "其他浏览器",
+    "ambiguousRef": "此链接可能同时包含分支和路径。请在分析前明确填写引用。"
   },
   "samples": {
     "label": "示例"
@@ -43,7 +55,8 @@
       "running": "正在下载归档、解压文件并统计语言数据。",
       "completed": "分析完成。",
       "cached": "来自提交级缓存。",
-      "failed": "分析失败。"
+      "failed": "分析失败。",
+      "timedOut": "分析耗时过长。你可以重试或返回输入。"
     },
     "statusShort": {
       "idle": "空闲",
@@ -55,19 +68,15 @@
     },
     "log": {
       "idle": "空闲：命令运行器就绪",
-      "queuedWaiting": "排队中：等待工作进程许可",
-      "refAccepted": "仓库引用已接受",
-      "refResolved": "引用已解析",
-      "archiveDownloading": "归档下载中",
-      "tokeiRunning": "tokei 计数器运行中",
+      "queuedWaiting": "排队中：等待分析工作进程（{{elapsed}} 秒）",
       "resolvedRef": "已解析 {{ref}} -> {{sha}}",
       "cacheHit": "缓存命中已返回",
       "freshReport": "新报告已保存到缓存",
       "languageRows": "{{count}} 种语言行已渲染",
       "counted": "已统计 {{lines}} 行，耗时 {{duration}}ms",
-      "stillQueued": "仍在排队：任务逐个执行，请稍候",
-      "archiveExtracting": "正在解压归档",
-      "stillCounting": "大型仓库：tokei 仍在统计"
+      "stillQueued": "已等待 {{elapsed}} 秒，任务会逐个运行",
+      "stillCounting": "已运行 {{elapsed}} 秒；大型仓库可能需要更久",
+      "runningWaiting": "运行中：分析工作进程正在处理此仓库（{{elapsed}} 秒）"
     },
     "command": "octocount analyze {{repo}}{{ref}}{{force}}",
     "cacheHit": "缓存命中",
@@ -82,6 +91,8 @@
     "reRun": "重新运行",
     "clear": "清除",
     "runDetails": "运行详情",
+    "commandLabel": "命令",
+    "moreActions": "更多操作",
     "exportPngFailed": "PNG 导出失败，请重试。"
   },
   "shareCard": {
@@ -103,7 +114,12 @@
     "copyUrl": "报告链接",
     "copyEmbed": "嵌入 iframe",
     "exportPng": "PNG 卡片",
-    "copied": "已复制"
+    "copied": "已复制",
+    "preview": "预览",
+    "copyFailed": "复制失败。请选中链接后手动复制。",
+    "copyFailedShort": "复制失败",
+    "manualCopyAria": "用于手动复制的报告链接",
+    "manualContentAria": "用于手动复制的内容"
   },
   "similarRepos": {
     "ariaLabel": "相似仓库",
@@ -174,7 +190,10 @@
     "lines": "行数",
     "other": "其他",
     "noData": "无数据",
-    "totalLinesTooltip": "共 {{count}} 行"
+    "totalLinesTooltip": "共 {{count}} 行",
+    "fullStats": "完整统计",
+    "compactStats": "精简统计",
+    "totalCodeTooltip": "共 {{count}} 行代码"
   },
   "codeHistory": {
     "title": "代码行数增长历史",
@@ -182,7 +201,13 @@
     "locAbbrev": "行",
     "gatheringSloc": "正在采集历史代码数据…首次可能需要一分钟",
     "exportGif": "导出 GIF",
-    "gifExportFailed": "GIF 导出失败，请重试。"
+    "gifExportFailed": "GIF 导出失败，请重试。",
+    "unavailable": "历史数据无法加载。",
+    "empty": "暂无历史数据。",
+    "retry": "重试",
+    "dataTable": "历史数据",
+    "date": "日期",
+    "lines": "代码行"
   },
   "table": {
     "language": "语言",
@@ -334,7 +359,9 @@
       "top-language": "主语言",
       "ratio": "代码占比",
       "language": "单语言"
-    }
+    },
+    "markdownAria": "徽章 Markdown 输出",
+    "defaultConfigNote": "徽章使用请求引用的默认分析配置，不能复现报告中的自定义选项。"
   },
   "badgeWall": {
     "kicker": "实时徽章",
@@ -348,19 +375,41 @@
     "faqTitle": "徽章常见问题",
     "faqSubtitle": "关于 README 徽章的常见疑问",
     "faq": [
-      { "question": "什么是 OctoCounts 徽章？", "answer": "一个可嵌入 README 的小尺寸实时图片，展示仓库的 SLOC 统计，并链接到永久的 OctoCounts 报告页。" },
-      { "question": "如何把徽章加到 README 里？", "answer": "在上方的生成器中选择徽章类型，复制 Markdown 代码片段，然后粘贴到 README.md 中你想展示徽章的位置。" },
-      { "question": "徽章会拖慢 README 加载吗？", "answer": "不会。徽章是由 OctoCounts 徽章 API 提供的轻量 SVG 图片，并通过 CDN 缓存加速。" },
-      { "question": "可以只展示某一种语言吗？", "answer": "可以。在生成器中选择“单语言”，然后输入语言名称，例如 Rust 或 TypeScript。" },
-      { "question": "徽章会自动更新吗？", "answer": "徽章反映的是请求引用最新缓存报告的数据。重新分析仓库或访问其 OctoCounts 报告即可刷新缓存。" }
-    ]
+      {
+        "question": "什么是 OctoCounts 徽章？",
+        "answer": "一个可嵌入 README 的小尺寸实时图片，展示仓库的 SLOC 统计，并链接到永久的 OctoCounts 报告页。"
+      },
+      {
+        "question": "如何把徽章加到 README 里？",
+        "answer": "在上方的生成器中选择徽章类型，复制 Markdown 代码片段，然后粘贴到 README.md 中你想展示徽章的位置。"
+      },
+      {
+        "question": "徽章会拖慢 README 加载吗？",
+        "answer": "不会。徽章是由 OctoCounts 徽章 API 提供的轻量 SVG 图片，并通过 CDN 缓存加速。"
+      },
+      {
+        "question": "可以只展示某一种语言吗？",
+        "answer": "可以。在生成器中选择“单语言”，然后输入语言名称，例如 Rust 或 TypeScript。"
+      },
+      {
+        "question": "徽章会自动更新吗？",
+        "answer": "徽章反映的是请求引用最新缓存报告的数据。重新分析仓库或访问其 OctoCounts 报告即可刷新缓存。"
+      }
+    ],
+    "repoLabel": "仓库链接",
+    "repoAria": "仓库链接",
+    "refLabel": "引用（可选）",
+    "refAria": "仓库引用",
+    "refPlaceholder": "默认分支"
   },
   "embedBuilder": {
     "title": "嵌入 SLOC 卡片",
     "subtitle": "给博客和文档站用的 iframe 组件",
     "description": "把这段 iframe 代码粘贴到博客或文档页面，即可展示仓库的实时行数统计和语言分布，并链接回完整报告：",
     "previewAlt": "OctoCounts 嵌入卡片预览",
-    "copy": "复制 iframe"
+    "copy": "复制 iframe",
+    "snippetAria": "嵌入 iframe 输出",
+    "defaultConfigNote": "嵌入卡显示默认分支的最新缓存报告，不携带自定义分析选项。"
   },
   "embedCard": {
     "ariaLabel": "{{repo}} SLOC 概览卡片",
@@ -382,6 +431,7 @@
     "compareText": "{{left}} vs {{right}} —— OctoCounts 代码行数对比"
   },
   "compare": {
+    "draftChanged": "输入已修改。请重新运行以更新结果。",
     "title": "仓库对比",
     "subtitle": "对比分支、fork 或替代方案",
     "help": "对比两个公开仓库或引用的总 SLOC、代码行、语言结构和差异。",
@@ -397,7 +447,8 @@
     "right": "右侧",
     "delta": "差异",
     "copyUrl": "复制链接",
-    "running": "运行中：正在分析两份报告，可能需要一分钟"
+    "running": "运行中：正在分析两份报告，可能需要一分钟",
+    "resultPending": "运行比较后生成结果链接。"
   },
   "diff": {
     "title": "引用差异",
@@ -407,7 +458,8 @@
     "refs": "引用",
     "base": "基准引用",
     "head": "目标引用",
-    "run": "对比差异"
+    "run": "对比差异",
+    "resultPending": "运行差异比较后生成结果链接。"
   },
   "growth": {
     "reportsLabel": "报告",
@@ -514,6 +566,18 @@
         "title": "巨型仓库榜",
         "subtitle": "OctoCounts 已统计过的最大公开仓库，按代码行数排序。"
       }
+    },
+    "pagination": {
+      "ariaLabel": "报告页面",
+      "previous": "上一页",
+      "page": "第 {{page}} 页",
+      "next": "下一页"
+    },
+    "repoCard": {
+      "mixed": "多语言",
+      "code": "代码",
+      "trendingFallback": "GitHub 热门仓库",
+      "starsToday": "今日 +{{count}} 星 · 共 {{total}} 星"
     }
   },
   "textReport": {
@@ -534,5 +598,46 @@
     "lines": "{{lines}} 行",
     "top": "顶部",
     "share": "分享"
+  },
+  "common": {
+    "skipToContent": "跳到正文"
+  },
+  "reportTools": {
+    "ariaLabel": "报告工具",
+    "title": "继续使用此仓库",
+    "subtitle": "在已选定此仓库和引用的工具中继续。",
+    "compare": "比较此引用",
+    "diff": "比较此引用的差异",
+    "badges": "创建徽章"
+  },
+  "developerTools": {
+    "title": "开发者工具",
+    "subtitle": "让 SLOC 报告出现在开发者日常工作的地方。",
+    "items": {
+      "stats": {
+        "title": "公开统计",
+        "text": "查看聚合报告总计、语言覆盖、最大仓库和来源分类，不追踪个人。"
+      },
+      "action": {
+        "title": "GitHub Action",
+        "text": "在拉取请求中备注 SLOC 变化，让报告进入评审流程。"
+      },
+      "cli": {
+        "title": "命令行工具",
+        "text": "在终端或 CI 脚本中运行 OctoCounts，并输出文本或 JSON 摘要。"
+      },
+      "mcp": {
+        "title": "MCP 服务",
+        "text": "通过 MCP 工具向智能体工作流和开发者助手提供 SLOC 报告。"
+      },
+      "badge": {
+        "title": "README 徽章",
+        "text": "添加一个链接到永久报告页的实时 SLOC 徽章。"
+      },
+      "api": {
+        "title": "API",
+        "text": "直接使用分析、任务、报告、徽章、SEO 和统计端点。"
+      }
+    }
   }
 }

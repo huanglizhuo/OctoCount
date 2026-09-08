@@ -21,6 +21,7 @@ export async function analyzeRepository(request: {
   forceRefresh: boolean;
   options?: AnalysisOptions;
   source?: AnalysisSource;
+  signal?: AbortSignal;
 }): Promise<AnalyzeResponse> {
   return fetchJson<AnalyzeResponse>("/api/analyze", {
     method: "POST",
@@ -32,6 +33,7 @@ export async function analyzeRepository(request: {
       options: request.options,
       source: request.source ?? "web",
     }),
+    signal: request.signal,
   });
 }
 

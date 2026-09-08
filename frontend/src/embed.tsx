@@ -44,8 +44,12 @@ export function EmbedPage() {
   // The card must blend into the host page: kill the app's dark scheme
   // background and grid overlay for the lifetime of the embed view.
   useEffect(() => {
+    document.documentElement.classList.add("embed-mode");
     document.body.classList.add("embed-mode");
-    return () => document.body.classList.remove("embed-mode");
+    return () => {
+      document.documentElement.classList.remove("embed-mode");
+      document.body.classList.remove("embed-mode");
+    };
   }, []);
 
   const query = useQuery({

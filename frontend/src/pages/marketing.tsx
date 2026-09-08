@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { fetchGrowthStats, fetchJson } from "../api";
@@ -8,7 +8,7 @@ import { CompareRepos, DiffRefs } from "../compare";
 import { BadgeBuilder, BadgeWall, EmbedBuilder } from "../badges";
 import { Topbar } from "../Topbar";
 import { formatCompactNumber, formatNumber } from "../reportUtils";
-import { ThemeSwitch } from "../scheme";
+import i18n from "../i18n";
 import type { GrowthRepositoryStat, GrowthStats } from "../types";
 
 // Marketing/growth pages (stats, recent, popular, trending, hall of
@@ -89,8 +89,8 @@ function growthRepoCards(reports: GrowthRepositoryStat[]): RepoCard[] {
     key: `${report.provider}:${report.owner}/${report.repo}`,
     tag: String(report.provider),
     title: `${report.owner}/${report.repo}`,
-    line: `${report.topLanguage ?? "mixed"} · ${formatNumber(report.total.code)} code`,
-    footer: new Date(report.generatedAt).toLocaleDateString(),
+    line: `${report.topLanguage ?? i18n.t("growth.repoCard.mixed")} · ${formatNumber(report.total.code)} ${i18n.t("growth.repoCard.code")}`,
+    footer: new Date(report.generatedAt).toLocaleDateString(i18n.language),
     href: report.publicPath,
   }));
 }
@@ -100,8 +100,8 @@ function seoReportCards(reports: SeoReportSummary[]): RepoCard[] {
     key: `${report.provider}:${report.owner}/${report.repo}`,
     tag: report.provider,
     title: report.repoFullName,
-    line: `${report.topLanguage?.name ?? "mixed"} · ${formatNumber(report.total.code)} code`,
-    footer: new Date(report.generatedAt).toLocaleDateString(),
+    line: `${report.topLanguage?.name ?? i18n.t("growth.repoCard.mixed")} · ${formatNumber(report.total.code)} ${i18n.t("growth.repoCard.code")}`,
+    footer: new Date(report.generatedAt).toLocaleDateString(i18n.language),
     href: report.publicPath,
   }));
 }
@@ -109,10 +109,10 @@ function seoReportCards(reports: SeoReportSummary[]): RepoCard[] {
 function trendingRepoCards(repositories: TrendingRepository[]): RepoCard[] {
   return repositories.map((repo) => ({
     key: repo.fullName,
-    tag: `#${repo.rank} · ${repo.language ?? "mixed"}`,
+    tag: `#${repo.rank} · ${repo.language ?? i18n.t("growth.repoCard.mixed")}`,
     title: repo.fullName,
-    line: repo.description || "GitHub Trending repository",
-    footer: `+${formatNumber(repo.starsToday)} stars today · ${formatNumber(repo.totalStars)} total`,
+    line: repo.description || i18n.t("growth.repoCard.trendingFallback"),
+    footer: i18n.t("growth.repoCard.starsToday", { count: formatNumber(repo.starsToday), total: formatNumber(repo.totalStars) }),
     href: repo.publicPath,
   }));
 }
@@ -126,18 +126,15 @@ function MarketingShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <a className="skip-link" href="#main">Skip to content</a>
+      <a className="skip-link" href="#main">{t("common.skipToContent")}</a>
       <div className="crt flicker" />
       <main id="main" className="page growth-page">
         <Topbar />
-        <div className="marketing-controls">
-          <ThemeSwitch />
-        </div>
         {children}
         <footer>
           <span>{t("growth.footerTagline")}</span>
           <span>
-            <a href="/stats">{t("growth.nav.stats.label")}</a> &middot; <a href="/recent">{t("growth.nav.recent.label")}</a> &middot; <a href="/popular">{t("growth.nav.popular.label")}</a> &middot; <a href="/trending">{t("growth.nav.trending.label")}</a> &middot; <a href="/hall-of-monoliths">{t("growth.nav.hall.label")}</a> &middot; <a href="/badges">{t("footer.badges")}</a> &middot; <a href="/launch-kit">{t("growth.launchKit")}</a> &middot; <a href="/privacy">{t("footer.privacy")}</a>
+            <a href="/stats">{t("growth.nav.stats.label")}</a> &middot; <a href="/recent">{t("growth.nav.recent.label")}</a> &middot; <a href="/popular">{t("growth.nav.popular.label")}</a> &middot; <a href="/trending">{t("growth.nav.trending.label")}</a> &middot; <a href="/hall-of-monoliths">{t("growth.nav.hall.label")}</a> &middot; <a href="/badges">{t("footer.badges")}</a> &middot; <a href="/privacy">{t("footer.privacy")}</a>
           </span>
         </footer>
       </main>
@@ -219,12 +216,14 @@ export function ReportListPage({ kind }: { kind: "recent" | "popular" | "monolit
   const endpoint = kind === "monoliths" ? "/api/seo/monoliths" : `/api/seo/${kind}`;
   // The edge function server-renders whichever ?page=N a deep link asks for;
   // fetch the same page or React would swap the SSR list back to page 1.
-  const page = Number(new URLSearchParams(window.location.search).get("page")) || 1;
+  const parsedPage = Number(new URLSearchParams(window.location.search).get("page"));
+  const page = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
   const query = useQuery({
     queryKey: ["seo-list", kind, page],
     queryFn: () => fetchJson<SeoListResponse>(`${endpoint}?limit=36&page=${page}`),
   });
   const copy = listPageCopy(kind, t);
+  const hasNext = (query.data?.reports.length ?? 36) === 36;
 
   return (
     <MarketingShell>
@@ -236,6 +235,11 @@ export function ReportListPage({ kind }: { kind: "recent" | "popular" | "monolit
       {query.isLoading ? <GrowthLoading /> : null}
       {query.isError ? <GrowthError onRetry={() => void query.refetch()} /> : null}
       {query.data ? <RepoCardGrid cards={seoReportCards(query.data.reports)} /> : null}
+      <nav className="list-pagination" aria-label={t("growth.pagination.ariaLabel")}>
+        {page > 1 ? <a className="copybtn" href={`?page=${page - 1}`}>{t("growth.pagination.previous")}</a> : <span />}
+        <span>{t("growth.pagination.page", { page })}</span>
+        {hasNext ? <a className="copybtn" href={`?page=${page + 1}`}>{t("growth.pagination.next")}</a> : <span />}
+      </nav>
     </MarketingShell>
   );
 }
@@ -297,6 +301,8 @@ export function DiffPage() {
 
 export function BadgesPage() {
   const { t } = useTranslation();
+  const [targetRepo, setTargetRepo] = useState(() => new URLSearchParams(window.location.search).get("repo") ?? "");
+  const [targetRef, setTargetRef] = useState(() => new URLSearchParams(window.location.search).get("ref") ?? "");
   const faqItems = t("badgesPage.faq", { returnObjects: true }) as Array<{ question: string; answer: string }>;
   return (
     <MarketingShell>
@@ -305,14 +311,22 @@ export function BadgesPage() {
         <h1>{t("badgesPage.title")}</h1>
         <p>{t("badgesPage.subtitle")}</p>
       </section>
-      <BadgeBuilder repoUrl="" refName="" report={null} />
-      <section aria-label={t("embedBuilder.title")}>
-        <div className="section-h">
-          <h2>{t("embedBuilder.title")}</h2>
-          <span className="sub">{t("embedBuilder.subtitle")}</span>
-        </div>
-        <EmbedBuilder repoUrl="" report={null} />
-      </section>
+      <form className="badge-target" onSubmit={(event) => event.preventDefault()}>
+        <label><span>{t("badgesPage.repoLabel")}</span><input value={targetRepo} onChange={(event) => setTargetRepo(event.target.value)} placeholder="https://github.com/owner/repo" aria-label={t("badgesPage.repoAria")} /></label>
+        <label><span>{t("badgesPage.refLabel")}</span><input value={targetRef} onChange={(event) => setTargetRef(event.target.value)} placeholder={t("badgesPage.refPlaceholder")} aria-label={t("badgesPage.refAria")} /></label>
+      </form>
+      <div className="tool-workspace">
+        <section aria-label={t("badgeBuilder.title")}>
+          <BadgeBuilder repoUrl={targetRepo} refName={targetRef} report={null} />
+        </section>
+        <section aria-label={t("embedBuilder.title")}>
+          <div className="section-h">
+            <h2>{t("embedBuilder.title")}</h2>
+            <span className="sub">{t("embedBuilder.subtitle")}</span>
+          </div>
+          <EmbedBuilder repoUrl={targetRepo} report={null} />
+        </section>
+      </div>
       <BadgeWall />
       <section aria-label={t("badgesPage.faqTitle")}>
         <div className="section-h">

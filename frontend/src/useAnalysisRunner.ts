@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import i18n from "./i18n";
 import { AnalyticsEvents, providerFromRepoUrl, trackEvent } from "./analytics";
@@ -32,6 +33,14 @@ export function useAnalysisRunner({
   const [error, setError] = useState<AnalysisError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastCommand, setLastCommand] = useState(commandText(defaultRepoUrl, defaultRefName, false));
+  // Network aborts are advisory: a completed request can still resolve after it
+  // has been aborted. The monotonically increasing operation is the authority
+  // for every state write, so an older sample/recent click cannot replace the
+  // report the visitor most recently asked for.
+  const operationRef = useRef(0);
+  const activeController = useRef<AbortController | null>(null);
+  const deadlineTimer = useRef<number | null>(null);
+  const [jobOperation, setJobOperation] = useState(0);
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -52,10 +61,12 @@ export function useAnalysisRunner({
       return;
     }
 
+    const operation = jobOperation;
     let cancelled = false;
     fetchJson<Report>(`/api/reports/${reportId}`)
       .then((nextReport) => {
-        if (cancelled) return;
+        if (cancelled || operation !== operationRef.current) return;
+        clearDeadline(deadlineTimer);
         setReport(nextReport);
         trackEvent(AnalyticsEvents.analyzeCompleted, {
           provider: normalizedProvider(nextReport.repository.provider, nextReport.repository.htmlUrl),
@@ -67,7 +78,8 @@ export function useAnalysisRunner({
         setJobStartedAt(null);
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || operation !== operationRef.current) return;
+        clearDeadline(deadlineTimer);
         setError(toAnalysisError(err));
         setJobId(null);
         setJobStartedAt(null);
@@ -76,17 +88,43 @@ export function useAnalysisRunner({
     return () => {
       cancelled = true;
     };
-  }, [jobQuery.data?.status, jobQuery.data?.reportId, report]);
+  }, [jobQuery.data?.status, jobQuery.data?.reportId, report, jobOperation]);
 
   useEffect(() => {
-    if (jobQuery.data?.status === "failed") {
+    if (jobQuery.data?.status === "failed" && jobOperation === operationRef.current) {
       setError(errorMessage(jobQuery.data.error));
+      clearDeadline(deadlineTimer);
       setJobId(null);
       setJobStartedAt(null);
     }
-  }, [jobQuery.data]);
+  }, [jobQuery.data, jobOperation]);
+
+  useEffect(() => {
+    if (!jobQuery.isError || jobOperation !== operationRef.current) return;
+    setError(toAnalysisError(jobQuery.error));
+    clearDeadline(deadlineTimer);
+    setJobId(null);
+    setJobStartedAt(null);
+  }, [jobQuery.isError, jobQuery.error, jobOperation]);
+
+  useEffect(() => () => { activeController.current?.abort(); clearDeadline(deadlineTimer); }, []);
 
   const runAnalysis = async (forceRefresh: boolean, overrides?: { repoUrl?: string; refName?: string }) => {
+    const operation = operationRef.current + 1;
+    operationRef.current = operation;
+    activeController.current?.abort();
+    clearDeadline(deadlineTimer);
+    const controller = new AbortController();
+    activeController.current = controller;
+    deadlineTimer.current = window.setTimeout(() => {
+      if (operation !== operationRef.current) return;
+      operationRef.current += 1;
+      controller.abort();
+      setError({ message: i18n.t("runner.status.timedOut") });
+      setJobId(null);
+      setJobStartedAt(null);
+      setIsSubmitting(false);
+    }, 120_000);
     const requestedRepoUrl = overrides?.repoUrl ?? repoUrl;
     const requestedRefName = overrides?.refName ?? refName;
     const effectiveRepoUrl = requestedRepoUrl.trim() || defaultRepoUrl;
@@ -104,8 +142,10 @@ export function useAnalysisRunner({
     });
 
     try {
-      const result = await analyzeRepository({ repoUrl: effectiveRepoUrl, refName: effectiveRefName, forceRefresh, options: analysisOptions });
+      const result = await analyzeRepository({ repoUrl: effectiveRepoUrl, refName: effectiveRefName, forceRefresh, options: analysisOptions, signal: controller.signal });
+      if (operation !== operationRef.current) return;
       if (result.kind === "cached") {
+        clearDeadline(deadlineTimer);
         setReport(result.report);
         trackEvent(AnalyticsEvents.analyzeCompleted, {
           provider: normalizedProvider(result.report.repository.provider, effectiveRepoUrl),
@@ -115,20 +155,27 @@ export function useAnalysisRunner({
         });
       } else {
         setJobStartedAt(Date.now());
+        setJobOperation(operation);
         setJobId(result.jobId);
       }
     } catch (err) {
+      if (operation !== operationRef.current || (err instanceof DOMException && err.name === "AbortError")) return;
+      clearDeadline(deadlineTimer);
       setError(toAnalysisError(err));
     } finally {
-      setIsSubmitting(false);
+      if (operation === operationRef.current) setIsSubmitting(false);
     }
   };
 
   const reset = () => {
+    operationRef.current += 1;
+    activeController.current?.abort();
+    clearDeadline(deadlineTimer);
     setReport(null);
     setError(null);
     setJobId(null);
     setJobStartedAt(null);
+    setIsSubmitting(false);
   };
 
   const status: AppStatus = error
@@ -150,6 +197,11 @@ export function useAnalysisRunner({
     runAnalysis,
     reset,
   };
+}
+
+function clearDeadline(timer: MutableRefObject<number | null>) {
+  if (timer.current !== null) window.clearTimeout(timer.current);
+  timer.current = null;
 }
 
 function pollingInterval(elapsedMs: number) {

@@ -1,5 +1,5 @@
 import { Loader2, Play, Clipboard } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { analyzeRepository, fetchJson } from "./api";
 import { AnalyticsEvents, providerFromRepoUrl, trackEvent } from "./analytics";
@@ -24,20 +24,29 @@ export function CompareRepos({ showHelp = true }: { showHelp?: boolean }) {
   const [rightReport, setRightReport] = useState<Report | null>(null);
   const [compareStatus, setCompareStatus] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [compareError, setCompareError] = useState("");
+  const [completedShareUrl, setCompletedShareUrl] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<"copied" | "failed" | null>(null);
+  const operation = useRef(0);
 
   const runCompare = async () => {
-    trackEvent("compare_run", { mode: "repos", leftProvider: providerFromRepoUrl(leftRepo), rightProvider: providerFromRepoUrl(rightRepo) });
+    const run = operation.current + 1;
+    operation.current = run;
+    const snapshot = { leftRepo: leftRepo.trim(), leftRef: leftRef.trim(), rightRepo: rightRepo.trim(), rightRef: rightRef.trim() };
+    trackEvent("compare_run", { mode: "repos", leftProvider: providerFromRepoUrl(snapshot.leftRepo), rightProvider: providerFromRepoUrl(snapshot.rightRepo) });
     setCompareStatus("running");
     setCompareError("");
     try {
       const [left, right] = await Promise.all([
-        analyzeAndWait(leftRepo, leftRef),
-        analyzeAndWait(rightRepo, rightRef),
+        analyzeAndWait(snapshot.leftRepo, snapshot.leftRef),
+        analyzeAndWait(snapshot.rightRepo, snapshot.rightRef),
       ]);
+      if (run !== operation.current) return;
       setLeftReport(left);
       setRightReport(right);
+      setCompletedShareUrl(buildCompareUrl(snapshot.leftRepo, snapshot.rightRepo, snapshot.leftRef, snapshot.rightRef));
       setCompareStatus("completed");
     } catch (error) {
+      if (run !== operation.current) return;
       setCompareError(error instanceof Error ? error.message : t("error.requestFailed"));
       setCompareStatus("failed");
     }
@@ -55,10 +64,10 @@ export function CompareRepos({ showHelp = true }: { showHelp?: boolean }) {
         </button>
       </form>
       <div className="compare-share-row">
-        <code>{buildCompareUrl(leftRepo, rightRepo, leftRef, rightRef)}</code>
-        <button className="copybtn" type="button" onClick={() => { copyCompareUrl(buildCompareUrl(leftRepo, rightRepo, leftRef, rightRef)); }}>
+        <code>{completedShareUrl ?? t("compare.resultPending")}</code>
+        <button className="copybtn" type="button" disabled={!completedShareUrl} onClick={() => { if (completedShareUrl) void copyCompareUrl(completedShareUrl).then((copied) => setCopyFeedback(copied ? "copied" : "failed")); }}>
           <Clipboard size={14} />
-          {t("compare.copyUrl")}
+          {copyFeedback === "copied" ? t("reportCta.copied") : copyFeedback === "failed" ? t("reportCta.copyFailedShort") : t("compare.copyUrl")}
         </button>
       </div>
       {compareStatus === "running" ? <div className="compare-status" role="status"><Loader2 className="spin" size={13} aria-hidden="true" /> {t("compare.running")}</div> : null}
@@ -68,14 +77,16 @@ export function CompareRepos({ showHelp = true }: { showHelp?: boolean }) {
           <button type="button" className="copybtn retry-btn" onClick={() => void runCompare()}>{t("error.retry")}</button>
         </div>
       ) : null}
-      {leftReport && rightReport ? <CompareResults left={leftReport} right={rightReport} shareUrl={buildCompareUrl(leftRepo, rightRepo, leftRef, rightRef)} sharePlacement="compare" /> : null}
+      {completedShareUrl && completedShareUrl !== buildCompareUrl(leftRepo, rightRepo, leftRef, rightRef) ? <p className="draft-notice" role="status">{t("compare.draftChanged")}</p> : null}
+      {leftReport && rightReport && completedShareUrl ? <CompareResults left={leftReport} right={rightReport} shareUrl={completedShareUrl} sharePlacement="compare" /> : null}
     </div>
   );
 }
 
-function copyCompareUrl(url: string) {
-  copyText(url);
-  trackEvent(AnalyticsEvents.shareClicked, { share_type: "compare_url" });
+async function copyCompareUrl(url: string) {
+  const copied = await copyText(url);
+  if (copied) trackEvent(AnalyticsEvents.shareClicked, { share_type: "compare_url" });
+  return copied;
 }
 
 function CompareInput({
@@ -109,6 +120,7 @@ function CompareInput({
 
 export function DiffRefs({ showHelp = true }: { showHelp?: boolean }) {
   const { t } = useTranslation();
+  const [copyFeedback, setCopyFeedback] = useState<"copied" | "failed" | null>(null);
   const initialDiff = useMemo(() => initialDiffFromLocation(), []);
   const [repo, setRepo] = useState(initialDiff.repo);
   const [baseRef, setBaseRef] = useState(initialDiff.base);
@@ -117,20 +129,28 @@ export function DiffRefs({ showHelp = true }: { showHelp?: boolean }) {
   const [headReport, setHeadReport] = useState<Report | null>(null);
   const [status, setStatus] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [error, setError] = useState("");
+  const [completedShareUrl, setCompletedShareUrl] = useState<string | null>(null);
+  const operation = useRef(0);
 
   const runDiff = async () => {
-    trackEvent("compare_run", { mode: "diff", provider: providerFromRepoUrl(repo) });
+    const run = operation.current + 1;
+    operation.current = run;
+    const snapshot = { repo: repo.trim(), base: baseRef.trim(), head: headRef.trim() };
+    trackEvent("compare_run", { mode: "diff", provider: providerFromRepoUrl(snapshot.repo) });
     setStatus("running");
     setError("");
     try {
       const [base, head] = await Promise.all([
-        analyzeAndWait(repo, baseRef),
-        analyzeAndWait(repo, headRef),
+        analyzeAndWait(snapshot.repo, snapshot.base),
+        analyzeAndWait(snapshot.repo, snapshot.head),
       ]);
+      if (run !== operation.current) return;
       setBaseReport(base);
       setHeadReport(head);
+      setCompletedShareUrl(buildDiffUrl(snapshot.repo, snapshot.base, snapshot.head));
       setStatus("completed");
     } catch (err) {
+      if (run !== operation.current) return;
       setStatus("failed");
       setError(err instanceof Error ? err.message : t("error.requestFailed"));
     }
@@ -164,10 +184,10 @@ export function DiffRefs({ showHelp = true }: { showHelp?: boolean }) {
         </button>
       </form>
       <div className="compare-share-row">
-        <code>{buildDiffUrl(repo, baseRef, headRef)}</code>
-        <button className="copybtn" type="button" onClick={() => { copyText(buildDiffUrl(repo, baseRef, headRef)); trackEvent(AnalyticsEvents.shareClicked, { share_type: "diff_url" }); }}>
+        <code>{completedShareUrl ?? t("diff.resultPending")}</code>
+        <button className="copybtn" type="button" disabled={!completedShareUrl} onClick={() => { if (completedShareUrl) void copyText(completedShareUrl).then((copied) => { if (copied) trackEvent(AnalyticsEvents.shareClicked, { share_type: "diff_url" }); setCopyFeedback(copied ? "copied" : "failed"); }); }}>
           <Clipboard size={14} />
-          {t("compare.copyUrl")}
+          {copyFeedback === "copied" ? t("reportCta.copied") : copyFeedback === "failed" ? t("reportCta.copyFailedShort") : t("compare.copyUrl")}
         </button>
       </div>
       {status === "running" ? <div className="compare-status" role="status"><Loader2 className="spin" size={13} aria-hidden="true" /> {t("compare.running")}</div> : null}
@@ -177,7 +197,8 @@ export function DiffRefs({ showHelp = true }: { showHelp?: boolean }) {
           <button type="button" className="copybtn retry-btn" onClick={() => void runDiff()}>{t("error.retry")}</button>
         </div>
       ) : null}
-      {baseReport && headReport ? <CompareResults left={baseReport} right={headReport} shareUrl={buildDiffUrl(repo, baseRef, headRef)} sharePlacement="diff" /> : null}
+      {completedShareUrl && completedShareUrl !== buildDiffUrl(repo, baseRef, headRef) ? <p className="draft-notice" role="status">{t("compare.draftChanged")}</p> : null}
+      {baseReport && headReport && completedShareUrl ? <CompareResults left={baseReport} right={headReport} shareUrl={completedShareUrl} sharePlacement="diff" /> : null}
     </div>
   );
 }
@@ -202,10 +223,12 @@ function CompareResults({ left, right, shareUrl, sharePlacement }: { left: Repor
       <div className="compare-head">
         <div>
           <span>{left.repository.owner}/{left.repository.name}</span>
+          <small>{left.refName || "default"} · {left.commitSha.slice(0, 12)}</small>
           <strong>{topLeft}</strong>
         </div>
         <div>
           <span>{right.repository.owner}/{right.repository.name}</span>
+          <small>{right.refName || "default"} · {right.commitSha.slice(0, 12)}</small>
           <strong>{topRight}</strong>
         </div>
       </div>
@@ -216,7 +239,7 @@ function CompareResults({ left, right, shareUrl, sharePlacement }: { left: Repor
               <th>{t("compare.metric")}</th>
               <th>{t("compare.left")}</th>
               <th>{t("compare.right")}</th>
-              <th>{t("compare.delta")}</th>
+              <th>{t("compare.delta")} = {t("compare.right")} − {t("compare.left")}</th>
             </tr>
           </thead>
           <tbody>
@@ -302,7 +325,7 @@ function initialCompareFromLocation() {
   if (window.location.pathname !== "/compare") {
     return {
       leftRepo: defaultRepoUrl,
-      leftRef: defaultRefName,
+      leftRef: "",
       rightRepo: "https://github.com/tokio-rs/axum",
       rightRef: "",
     };
@@ -310,7 +333,7 @@ function initialCompareFromLocation() {
   const params = new URLSearchParams(window.location.search);
   return {
     leftRepo: params.get("left") || defaultRepoUrl,
-    leftRef: params.get("leftRef") || defaultRefName,
+    leftRef: params.get("leftRef") ?? "",
     rightRepo: params.get("right") || "https://github.com/tokio-rs/axum",
     rightRef: params.get("rightRef") || "",
   };

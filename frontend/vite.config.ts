@@ -6,9 +6,31 @@ const extensionPackage = JSON.parse(
   readFileSync(new URL("../extension/package.json", import.meta.url), "utf8"),
 ) as { version: string };
 
+function redirectLegacyLaunchKit(server: { middlewares: { use: (handler: (req: { url?: string }, res: { statusCode: number; setHeader: (name: string, value: string) => void; end: () => void }, next: () => void) => void) => void } }) {
+  server.middlewares.use((req, res, next) => {
+    const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    if (!["/launch-kit", "/launch-kit/", "/launch-kit.html"].includes(requestUrl.pathname)) {
+      next();
+      return;
+    }
+    res.statusCode = 308;
+    res.setHeader("Location", `/${requestUrl.search}#extension`);
+    res.end();
+  });
+}
+
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: "legacy-launch-kit-redirect",
+      configureServer(server) {
+        redirectLegacyLaunchKit(server);
+      },
+      configurePreviewServer(server) {
+        redirectLegacyLaunchKit(server);
+      },
+    },
     {
       name: "inject-extension-version",
       transformIndexHtml(html) {
@@ -27,7 +49,7 @@ export default defineConfig({
     proxy: {
       "/api": "http://127.0.0.1:8095",
       "/og": "http://127.0.0.1:8095",
-      "/badge": "http://127.0.0.1:8095",
+      "^/badge/": "http://127.0.0.1:8095",
     },
   },
 });

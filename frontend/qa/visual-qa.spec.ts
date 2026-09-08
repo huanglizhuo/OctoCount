@@ -26,7 +26,7 @@ test.describe('OctoCounts visual QA', () => {
   test('1. desktop: demo report loads with donut and table rows', async ({ page }) => {
     await waitForReport(page);
     await expect(page.locator('table.report tbody tr').first()).toBeVisible();
-    await expect(page.locator('svg').first()).toBeVisible();
+    await expect(page.locator('.donut-wrap svg')).toBeVisible();
   });
 
   test('2. table sorting updates URL and reload restores it', async ({ page }) => {

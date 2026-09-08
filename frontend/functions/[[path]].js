@@ -11,7 +11,6 @@ const STATIC_SITEMAP_ENTRIES = [
   { loc: "https://octocounts.com/trending", lastmod: STATIC_SITEMAP_LASTMOD },
   { loc: "https://octocounts.com/hall-of-monoliths", lastmod: STATIC_SITEMAP_LASTMOD },
   { loc: "https://octocounts.com/badges", lastmod: STATIC_SITEMAP_LASTMOD },
-  { loc: "https://octocounts.com/launch-kit", lastmod: STATIC_SITEMAP_LASTMOD },
   { loc: "https://octocounts.com/docs/github-sloc-counter", lastmod: STATIC_SITEMAP_LASTMOD },
   { loc: "https://octocounts.com/docs/api", lastmod: STATIC_SITEMAP_LASTMOD },
   { loc: "https://octocounts.com/docs/methodology", lastmod: STATIC_SITEMAP_LASTMOD },
@@ -29,6 +28,15 @@ const STATIC_SITEMAP_ENTRIES = [
 
 export async function onRequest(context) {
   const url = new URL(context.request.url);
+  // The launch kit is an internal repository resource. Preserve a legacy
+  // language query while directing both historic public paths to the stable
+  // extension section in one hop, including a trailing slash.
+  if (["/launch-kit", "/launch-kit/", "/launch-kit.html"].includes(url.pathname)) {
+    const target = new URL("/#extension", url.origin);
+    target.search = url.search;
+    return Response.redirect(target, 308);
+  }
+
   // Every canonical URL on this site is extensionless and slash-free (see
   // STATIC_SITEMAP_ENTRIES and every canonical: below). Without this, dynamic
   // routes like /github/:owner/:repo/ and /compare/:slug/ served 200s instead
@@ -150,7 +158,6 @@ const LEGACY_DOC_REDIRECTS = {
   "/docs/github-sloc-counter.html": "/docs/github-sloc-counter",
   "/docs/methodology.html": "/docs/methodology",
   "/docs/api.html": "/docs/api",
-  "/launch-kit.html": "/launch-kit",
 };
 
 const LEGACY_REPORT_REDIRECTS = {
@@ -196,11 +203,16 @@ function legacyQueryReportPath(url) {
     const repo = encodeURIComponent(segments[1].replace(/\.git$/i, ""));
     const embeddedRef = segments[2] === "tree" || segments[2] === "commit" ? segments.slice(3).join("/") : "";
     const refName = (url.searchParams.get("ref") ?? embeddedRef).trim();
-    if (!refName) return `/github/${owner}/${repo}`;
+    const extras = new URLSearchParams(url.search);
+    extras.delete("q");
+    extras.delete("url");
+    extras.delete("ref");
+    const suffix = extras.toString() ? `?${extras.toString()}` : "";
+    if (!refName) return `/github/${owner}/${repo}${suffix}`;
 
     const marker = /^[a-f0-9]{7,40}$/i.test(refName) ? "commit" : "tree";
     const encodedRef = refName.split("/").map(encodeURIComponent).join("/");
-    return `/github/${owner}/${repo}/${marker}/${encodedRef}`;
+    return `/github/${owner}/${repo}/${marker}/${encodedRef}${suffix}`;
   } catch {
     return "";
   }
@@ -260,7 +272,7 @@ async function reportResponse(context, route, options = {}) {
   const comparePath = requestUrl.pathname.endsWith(".md") ? requestUrl.pathname.slice(0, -3) : requestUrl.pathname;
   if (report.publicPath && report.publicPath.toLowerCase() === comparePath.toLowerCase() && report.publicPath !== comparePath) {
     const suffix = requestUrl.pathname.endsWith(".md") ? ".md" : "";
-    return Response.redirect(new URL(report.publicPath + suffix, requestUrl.origin), 308);
+    return Response.redirect(new URL(report.publicPath + suffix + requestUrl.search, requestUrl.origin), 308);
   }
   // 1h, not 24h: report titles/descriptions carry live line counts, and the
   // SEO report API behind this page already serves s-maxage=3600. Caching the

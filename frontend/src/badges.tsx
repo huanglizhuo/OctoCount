@@ -2,7 +2,6 @@ import { Clipboard } from "lucide-react";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AnalyticsEvents, trackEvent } from "./analytics";
-import { defaultRepoUrl } from "./constants";
 import { copyText, normalizedProvider } from "./reportUtils";
 import type { Report } from "./types";
 
@@ -18,9 +17,10 @@ export function BadgeBuilder({ repoUrl, refName, report }: { repoUrl: string; re
   const { t } = useTranslation();
   const [badgeType, setBadgeType] = useState<(typeof badgeTypes)[number]>("summary");
   const [language, setLanguage] = useState("rust");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const repoPath = report && normalizedProvider(report) === "github"
     ? { owner: report.repository.owner, repo: report.repository.name }
-    : parseGitHubRepo(repoUrl || defaultRepoUrl);
+    : parseGitHubRepo(repoUrl);
   const effectiveRef = report?.refName || refName.trim();
   const badgeUrl = repoPath ? buildBadgeUrl(repoPath.owner, repoPath.repo, effectiveRef, badgeType, language) : "";
   const frontendUrl = repoPath ? buildPublicReportUrl(repoPath.owner, repoPath.repo, effectiveRef, "github") : window.location.origin;
@@ -28,7 +28,9 @@ export function BadgeBuilder({ repoUrl, refName, report }: { repoUrl: string; re
 
   return (
     <div className="badge-builder">
-      <div className="badge-builder-controls">
+      <div className="badge-builder-layout">
+        <div className="badge-builder-settings">
+          <div className="badge-builder-controls">
         <label>
           <span>{t("badgeBuilder.type")}</span>
           <select value={badgeType} onChange={(event) => setBadgeType(event.target.value as (typeof badgeTypes)[number])}>
@@ -37,20 +39,25 @@ export function BadgeBuilder({ repoUrl, refName, report }: { repoUrl: string; re
             ))}
           </select>
         </label>
-        <label>
-          <span>{t("badgeBuilder.language")}</span>
-          <input value={language} onChange={(event) => setLanguage(event.target.value)} disabled={badgeType !== "language"} placeholder="rust" />
-        </label>
-      </div>
-      <div className="badge-builder-preview">
+            {badgeType === "language" ? <label>
+              <span>{t("badgeBuilder.language")}</span>
+              <input value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="rust" />
+            </label> : null}
+          </div>
+        </div>
+        <div className="badge-builder-result">
+          <div className="badge-builder-preview">
         {badgeUrl ? <img src={badgeUrl} alt={t("badgeBuilder.previewAlt")} width="180" height="20" /> : <span>{t("badgeBuilder.noRepo")}</span>}
       </div>
-      <div className="badge-builder-output">
-        <code>{markdown || t("badgeBuilder.noRepo")}</code>
-        <button className="copybtn" type="button" disabled={!markdown} onClick={() => { copyText(markdown); trackEvent(AnalyticsEvents.badgeMarkdownCopied, { provider: "github", placement: "builder" }); }}>
-          <Clipboard size={14} />
-          {t("badgeBuilder.copyMarkdown")}
-        </button>
+          <p className="badge-semantics">{t("badgeBuilder.defaultConfigNote")}</p>
+          <div className="badge-builder-output">
+            <code tabIndex={0} aria-label={t("badgeBuilder.markdownAria")}>{markdown || t("badgeBuilder.noRepo")}</code>
+            <button className="copybtn" type="button" disabled={!markdown} onClick={() => { void copyText(markdown).then((copied) => { setCopyState(copied ? "copied" : "failed"); if (copied) trackEvent(AnalyticsEvents.badgeMarkdownCopied, { provider: "github", placement: "builder" }); }); }}>
+              <Clipboard size={14} />
+              {copyState === "copied" ? t("reportCta.copied") : copyState === "failed" ? t("reportCta.copyFailedShort") : t("badgeBuilder.copyMarkdown")}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -60,23 +67,25 @@ export function BadgeBuilder({ repoUrl, refName, report }: { repoUrl: string; re
 // /embed/:provider/:owner/:repo card, plus a live preview of that card.
 export function EmbedBuilder({ repoUrl, report }: { repoUrl: string; report: Report | null }) {
   const { t } = useTranslation();
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const repoPath = report && normalizedProvider(report) === "github"
     ? { owner: report.repository.owner, repo: report.repository.name }
-    : parseGitHubRepo(repoUrl || defaultRepoUrl);
+    : parseGitHubRepo(repoUrl);
   const embedUrl = repoPath ? buildEmbedUrl("github", repoPath.owner, repoPath.repo) : "";
   const snippet = embedUrl ? buildEmbedSnippet(embedUrl) : "";
 
   return (
     <div className="badge-builder embed-builder">
       <p className="badge-embed-desc">{t("embedBuilder.description")}</p>
+      <p className="badge-semantics">{t("embedBuilder.defaultConfigNote")}</p>
       <div className="badge-builder-preview embed-builder-preview">
         {embedUrl ? <iframe src={embedUrl} width="400" height="160" frameBorder="0" loading="lazy" title={t("embedBuilder.previewAlt")} /> : <span>{t("badgeBuilder.noRepo")}</span>}
       </div>
       <div className="badge-builder-output">
-        <code>{snippet || t("badgeBuilder.noRepo")}</code>
-        <button className="copybtn" type="button" disabled={!snippet} onClick={() => { copyText(snippet); trackEvent(AnalyticsEvents.embedSnippetCopied, { provider: "github", placement: "badges_page" }); }}>
+        <code tabIndex={0} aria-label={t("embedBuilder.snippetAria")}>{snippet || t("badgeBuilder.noRepo")}</code>
+        <button className="copybtn" type="button" disabled={!snippet} onClick={() => { void copyText(snippet).then((copied) => { setCopyState(copied ? "copied" : "failed"); if (copied) trackEvent(AnalyticsEvents.embedSnippetCopied, { provider: "github", placement: "badges_page" }); }); }}>
           <Clipboard size={14} />
-          {t("embedBuilder.copy")}
+          {copyState === "copied" ? t("reportCta.copied") : copyState === "failed" ? t("reportCta.copyFailedShort") : t("embedBuilder.copy")}
         </button>
       </div>
     </div>
