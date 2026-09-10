@@ -13,6 +13,9 @@ const STATE = {
   PRIVATE: 'private',
   VISIBILITY_UNKNOWN: 'visibility_unknown',
   SKIPPED_FORK: 'skipped_fork',
+  // A /tree/<ref>/<folder> URL. GitHub serves these without the About sidebar,
+  // so there is no mount point — a deliberate no-card context, not a failure.
+  TREE_VIEW: 'tree_view',
   DISABLED_BY_USER: 'disabled_by_user',
   PENDING: 'pending',
   ANALYZING: 'analyzing',
@@ -75,9 +78,9 @@ async function run() {
     }
 
     const info = parseRepoInfo();
-    const contextKey = `${info.owner}/${info.repo}@${info.ref}`;
+    const contextKey = contextKeyOf(info);
 
-    // Same repo, same ref: nothing async to redo, just make sure a card exists.
+    // Same repo, same ref, same folder: nothing async to redo, just make sure a card exists.
     if (plan?.contextKey === contextKey) {
       ensureMounted();
       return;
@@ -86,11 +89,19 @@ async function run() {
     unmountCard();
     unmountPanel();
 
+    // Deep tree views have no sidebar to mount into. Letting the resolver hunt
+    // for one there ends with a heuristic misidentifying the main column and a
+    // sidebar-sized card stretched across the top of the file listing.
+    if (info.folder) {
+      setContext(contextKey, info, {}, false, STATE.TREE_VIEW);
+      return;
+    }
+
     let settings;
     try {
       settings = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
     } catch (_) {
-      settings = { skipForks: true, cardPlacement: 'top' };
+      settings = { skipForks: false, cardPlacement: 'top' };
     }
 
     if (settings.skipForks && info.isFork) {
@@ -247,13 +258,21 @@ function onDomActivity() {
   }
 
   const info = parseRepoInfo();
-  const contextKey = `${info.owner}/${info.repo}@${info.ref}`;
-  if (plan?.contextKey !== contextKey) {
+  if (plan?.contextKey !== contextKeyOf(info)) {
     scheduleRun();
     return;
   }
 
   ensureMounted();
+}
+
+// The folder is part of the key, not just the ref: a repo root and its
+// subfolders share owner/repo@ref, but one mounts a card and the other must
+// not, so they can never be the same memoized context. Both the async and the
+// sync pass have to agree on this, or SPA navigation between root and
+// subfolder rides a stale plan in one of the two directions.
+function contextKeyOf(info) {
+  return `${info.owner}/${info.repo}@${info.ref}${info.folder ? `/${info.folder}` : ''}`;
 }
 
 function scheduleContextCheck() {

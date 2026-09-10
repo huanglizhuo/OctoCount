@@ -103,10 +103,15 @@ export function getRepoVisibility(root = document) {
  * It must never be a path. Returning `treePath` — the old fallback — sent
  * `master/app` as a ref on `/tree/master/app`, which the API rejects with
  * `ref_not_found`.
+ *
+ * `folder` is the part of `treePath` the resolved `ref` does not account for:
+ * `''` on a repo home and on a branch/commit root — the pages GitHub gives a
+ * sidebar — and non-empty inside a subfolder, where GitHub drops the sidebar
+ * and the card must not mount.
  */
 export function parseRepoInfo(pathname = window.location.pathname, root = document) {
   const route = parseRoute(pathname);
-  if (!route) return { owner: undefined, repo: undefined, ref: '', isFork: false };
+  if (!route) return { owner: undefined, repo: undefined, ref: '', folder: '', isFork: false };
 
   const { owner, repo, treePath } = route;
   const payload = readEmbeddedPayload(root);
@@ -120,10 +125,12 @@ export function parseRepoInfo(pathname = window.location.pathname, root = docume
     'meta[name="octolytics-dimension-repository_default_branch"]'
   )?.content?.trim() || '';
 
+  const ref = resolveRefFromPage(treePath, refsFromPayload(payload), buttonRef, metaRef);
   return {
     owner,
     repo,
-    ref: resolveRefFromPage(treePath, refsFromPayload(payload), buttonRef, metaRef),
+    ref,
+    folder: folderRemainder(treePath, ref),
     isFork: detectFork(payload, root),
   };
 }
@@ -232,6 +239,29 @@ function expandedShaFor(treePath, candidates) {
   const first = treePath.split('/')[0];
   if (!ABBREVIATED_SHA.test(first)) return '';
   return candidates.find(ref => FULL_SHA.test(ref) && ref.startsWith(first)) || '';
+}
+
+/**
+ * The folder a tree URL browses beneath its ref — see parseRepoInfo's `folder`.
+ *
+ * A treePath no resolved ref accounts for is returned as-is: a multi-segment
+ * path under an unnamed ref cannot be proven to be a root, so it is treated as
+ * "somewhere deeper" and the caller mounts nothing.
+ */
+function folderRemainder(treePath, ref) {
+  if (!treePath) return '';
+  if (treePath === ref) return '';
+  if (ref && treePath.startsWith(`${ref}/`)) return treePath.slice(ref.length + 1);
+
+  // `/tree/<abbreviated-sha>[/folder]`: the payload names the full commit, so
+  // the URL's first segment is a prefix of the ref, not a folder — the same
+  // shape expandedShaFor resolves when producing `ref` itself.
+  const first = treePath.split('/')[0];
+  if (ref && ABBREVIATED_SHA.test(first) && FULL_SHA.test(ref) && ref.startsWith(first)) {
+    return treePath.slice(first.length + 1);
+  }
+
+  return treePath;
 }
 
 // The skipForks setting fails silently when this returns a wrong answer, so the

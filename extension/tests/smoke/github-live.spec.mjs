@@ -22,10 +22,19 @@ const CARD = '[data-octocount-card]';
 
 // A handful of stable, non-forked public repositories. Deliberately small: the
 // point is to notice a GitHub change, not to crawl.
-const PAGES = [
+const CARD_PAGES = [
   { name: 'repo home', url: 'https://github.com/huanglizhuo/OctoCounts' },
-  { name: 'tree view', url: 'https://github.com/rust-lang/rust/tree/master/library' },
   { name: 'no-releases repo', url: 'https://github.com/jgm/pandoc' },
+];
+
+// GitHub serves subfolder tree views without the About sidebar, so the
+// extension deliberately mounts nothing there (STATE.TREE_VIEW in
+// src/content/index.js). Before that rule existed, the resolver's structural
+// fallback eventually misidentified the main column and stretched a
+// sidebar-sized card across the top of the file listing — this is the
+// regression guard for exactly that.
+const NO_CARD_PAGES = [
+  { name: 'subfolder tree view', url: 'https://github.com/rust-lang/rust/tree/master/library' },
 ];
 
 /*
@@ -60,7 +69,7 @@ test.afterAll(async () => {
   await context?.close();
 });
 
-for (const { name, url } of PAGES) {
+for (const { name, url } of CARD_PAGES) {
   test(`card mounts on ${name}`, async ({}, testInfo) => {
     const page = await context.newPage();
     const consoleErrors = [];
@@ -86,13 +95,45 @@ for (const { name, url } of PAGES) {
       await card.first().evaluate(element => element.remove());
       await expect(card).toHaveCount(1);
 
-      // SPA navigation must not leave a second card behind.
+      // Navigating into a subfolder must take the card with it: no sidebar
+      // there, so a card that survives is mounted somewhere it was never
+      // designed to be. Coming back must restore it — repo root and subfolder
+      // share owner/repo@ref but are different mount contexts.
       const folderLink = page.locator('a[href*="/tree/"]').first();
       if (await folderLink.count() > 0) {
         await folderLink.click({ timeout: 15_000 }).catch(() => {});
         await page.waitForTimeout(3_000);
+        await expect(card).toHaveCount(0);
+
+        await page.goBack({ timeout: 15_000 }).catch(() => {});
+        await page.waitForTimeout(3_000);
         await expect(card).toHaveCount(1);
       }
+    } catch (error) {
+      await saveDiagnostics(page, testInfo, { url, consoleErrors });
+      throw error;
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+for (const { name, url } of NO_CARD_PAGES) {
+  test(`no card on ${name}`, async ({}, testInfo) => {
+    const page = await context.newPage();
+    const consoleErrors = [];
+    page.on('console', message => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
+
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+
+      // Longer than the mount deadline in src/content/index.js: the old
+      // misbehavior mounted within it, so this window is what makes the
+      // assertion a real guard rather than a head start.
+      await page.waitForTimeout(8_000);
+      await expect(page.locator(CARD)).toHaveCount(0);
     } catch (error) {
       await saveDiagnostics(page, testInfo, { url, consoleErrors });
       throw error;

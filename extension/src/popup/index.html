@@ -19,6 +19,26 @@
     <span id="noticeText" class="banner-text"></span>
   </div>
 
+  <div id="forkSkipSection" class="banner banner--info" hidden>
+    <svg class="banner-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.878A2.25 2.25 0 005.75 8.5h1.5v2.128a2.251 2.251 0 101.5 0V8.5h1.5a2.25 2.25 0 002.25-2.25v-.878a2.25 2.25 0 10-1.5 0v.878a.75.75 0 01-.75.75h-4.5A.75.75 0 015 6.25v-.878zm3.75 7.5a.75.75 0 100-1.5.75.75 0 000 1.5zm-3-5.75a.75.75 0 110-1.5.75.75 0 010 1.5z"/></svg>
+    <div class="banner-body">
+      <span id="forkSkipText" class="banner-text"></span>
+      <div class="banner-actions">
+        <button type="button" id="forkSkipEnable" class="link-btn"></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="treeViewSection" class="banner banner--info" hidden>
+    <svg class="banner-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z"/></svg>
+    <div class="banner-body">
+      <span id="treeViewText" class="banner-text"></span>
+      <div class="banner-actions">
+        <button type="button" id="treeViewOpenRoot" class="link-btn"></button>
+      </div>
+    </div>
+  </div>
+
   <div id="mountFailSection" class="banner banner--warn" hidden>
     <svg class="banner-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0114.082 15H1.918a1.75 1.75 0 01-1.543-2.575zm1.763.707a.25.25 0 00-.44 0L1.698 13.132a.25.25 0 00.22.368h12.164a.25.25 0 00.22-.368zm.53 3.996v2.5a.75.75 0 01-1.5 0v-2.5a.75.75 0 011.5 0zM9 11a1 1 0 11-2 0 1 1 0 012 0z"/></svg>
     <div class="banner-body">
@@ -92,6 +112,7 @@
       <label class="row row--div" for="skipForks">
         <span class="row-info">
           <span class="row-label" id="skipForksLabel"></span>
+          <span class="row-desc" id="hintSkipForksDesc"></span>
         </span>
         <span class="toggle-wrap">
           <input id="skipForks" type="checkbox" class="toggle-inp">

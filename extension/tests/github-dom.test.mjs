@@ -313,6 +313,11 @@ test('markup captured from a live tree view reports the branch, not the tree pat
   // has to survive that gate too.
   assert.equal(getRepoVisibility(document), 'public');
   assert.equal(parseRepoInfo('/git/git/tree/master/builtin', document).isFork, false);
+  // The folder is what separates "branch root, GitHub serves a sidebar" from
+  // "subfolder, no sidebar, the card must stay off".
+  assert.equal(parseRepoInfo('/git/git', document).folder, '');
+  assert.equal(parseRepoInfo('/git/git/tree/master', document).folder, '');
+  assert.equal(parseRepoInfo('/git/git/tree/master/builtin', document).folder, 'builtin');
 });
 
 // The captured page above covers today's payload. These build payloads inline
@@ -353,6 +358,9 @@ test('a ref containing slashes survives, and is preferred over its first segment
   });
   assert.equal(parseRepoInfo('/octo/demo/tree/release/1.x', document).ref, 'release/1.x');
   assert.equal(parseRepoInfo('/octo/demo/tree/release/1.x/src', document).ref, 'release/1.x');
+  // The slash in the ref must not turn its own root into a "subfolder".
+  assert.equal(parseRepoInfo('/octo/demo/tree/release/1.x', document).folder, '');
+  assert.equal(parseRepoInfo('/octo/demo/tree/release/1.x/src', document).folder, 'src');
 });
 
 test('a stated ref is only believed at a segment boundary', () => {
@@ -397,6 +405,10 @@ test('an abbreviated SHA in the URL resolves to the full SHA the page states', (
   assert.equal(parseRepoInfo('/tokio-rs/tokio/tree/ea91b33/tokio', document).ref, sha);
   // The full SHA still works through the ordinary path.
   assert.equal(parseRepoInfo(`/tokio-rs/tokio/tree/${sha}`, document).ref, sha);
+  // A hex abbreviation is a prefix of the ref, not a folder name.
+  assert.equal(parseRepoInfo('/tokio-rs/tokio/tree/ea91b33', document).folder, '');
+  assert.equal(parseRepoInfo('/tokio-rs/tokio/tree/ea91b33/tokio', document).folder, 'tokio');
+  assert.equal(parseRepoInfo(`/tokio-rs/tokio/tree/${sha}`, document).folder, '');
 });
 
 test('the SHA expansion cannot resolve a branch name to a similar branch name', () => {
@@ -416,6 +428,28 @@ test('the SHA expansion cannot resolve a branch name to a similar branch name', 
     codeViewLayoutRoute: { refInfo: { name: 'deadbeef' } },
   });
   assert.equal(parseRepoInfo('/octo/demo/tree/deadbee', shortCandidate).ref, 'deadbee');
+});
+
+test('a tree path no stated ref accounts for is a subfolder, never a root', () => {
+  // Mid-navigation contradiction: the payload still names the previous page's
+  // ref, nothing agrees with the URL, and `ref` comes back empty. The path is
+  // still multi-segment, so it cannot prove itself to be a branch root — the
+  // folder keeps the whole path and the card stays off.
+  const contradicted = pageWithPayload({
+    codeViewLayoutRoute: { refInfo: { name: 'main' } },
+  });
+  assert.equal(parseRepoInfo('/octo/demo/tree/main-v2/src', contradicted).ref, '');
+  assert.equal(parseRepoInfo('/octo/demo/tree/main-v2/src', contradicted).folder, 'main-v2/src');
+
+  // A single segment the page does not confirm is still the ref itself, so the
+  // branch root keeps its card (this is resolveRefFromPage's own rule).
+  assert.equal(parseRepoInfo('/octo/demo/tree/main-v2', contradicted).ref, 'main-v2');
+  assert.equal(parseRepoInfo('/octo/demo/tree/main-v2', contradicted).folder, '');
+
+  // An empty payload on an unhydrated page: same outcome, by the same rule.
+  const blank = pageWithPayload({});
+  assert.equal(parseRepoInfo('/octo/demo/tree/x/y', blank).ref, '');
+  assert.equal(parseRepoInfo('/octo/demo/tree/x/y', blank).folder, 'x/y');
 });
 
 test('a single path segment is the ref, even when the page names something else', () => {

@@ -1,5 +1,5 @@
 import { t } from '../i18n/index.js';
-import { DEFAULT_SETTINGS } from '../shared/settings.js';
+import { getSettings } from '../shared/settings.js';
 import { BUILD_INFO } from '../shared/buildInfo.js';
 import { parseRoute, fingerprintHash } from '../content/github-dom.js';
 import { isLoginSupported, getAuthState } from '../shared/github-auth.js';
@@ -28,6 +28,7 @@ function applyTranslations() {
   $('silentUntilSuccessLabel').textContent  = t('popup.silentUntilSuccess');
   $('replaceGhLanguagesLabel').textContent  = t('popup.replaceGhLanguages');
   $('skipForksLabel').textContent           = t('popup.skipForks');
+  $('hintSkipForksDesc').textContent        = t('popup.hintSkipForks');
   $('hintSilentDesc').textContent           = t('popup.hintSilent');
   $('hintReplaceGhDesc').textContent        = t('popup.hintReplaceGhLanguages');
 
@@ -62,7 +63,9 @@ function applyTranslations() {
 }
 
 async function load() {
-  const sync = await chrome.storage.sync.get(DEFAULT_SETTINGS);
+  // getSettings, not a raw storage read: it also performs the one-time
+  // skipForks migration, so the checkbox shows what the content script sees.
+  const sync = await getSettings();
 
   $('silentUntilSuccess').checked = sync.silentUntilSuccess === true;
   $('cardTitle').value            = sync.cardTitle || '';
@@ -92,6 +95,7 @@ document.querySelectorAll('input, select, textarea').forEach(el => {
 load();
 loadError();
 checkPageStatus();
+initForkSkipBanner();
 initClearCache();
 initGithubAccount();
 setFooterVersion();
@@ -127,6 +131,16 @@ async function checkPageStatus() {
         await initRepoPill(status.owner, status.repo);
       } else {
         setTabStatus('active');
+      }
+      // A skipped fork is configured behavior, not a mount failure, but it is
+      // the one skip reason the user cannot see anywhere on the page.
+      if (status.mountState === 'skipped_fork') {
+        $('forkSkipSection').hidden = false;
+      }
+      // Subfolders are a deliberate no-card context: GitHub serves them without
+      // the sidebar the card lives in. Point at the page where the card is.
+      if (status.mountState === 'tree_view' && status.owner && status.repo) {
+        showTreeViewBanner(tab, status.owner, status.repo);
       }
       // A missing trustworthy mount point or visibility signal both indicate
       // that GitHub changed a page contract the extension depends on.
@@ -405,6 +419,35 @@ async function loadError() {
   });
 
   section.hidden = false;
+}
+
+/* ── fork-skip banner ────────────────────────────────────────────────────── */
+
+function initForkSkipBanner() {
+  $('forkSkipText').textContent   = t('popup.forkSkipped');
+  $('forkSkipEnable').textContent = t('popup.forkSkippedEnable');
+
+  // The content script watches chrome.storage.onChanged, so this one write is
+  // enough for the card to appear on the page behind the popup.
+  $('forkSkipEnable').addEventListener('click', async () => {
+    try {
+      await chrome.storage.sync.set({ skipForks: false });
+      $('skipForks').checked = false;
+      $('forkSkipSection').hidden = true;
+    } catch (_) {}
+  });
+}
+
+/* ── subfolder (tree view) banner ─────────────────────────────────────────── */
+
+function showTreeViewBanner(tab, owner, repo) {
+  $('treeViewText').textContent = t('popup.treeViewHidden');
+  const btn = $('treeViewOpenRoot');
+  btn.textContent = t('popup.treeViewOpenRoot');
+  btn.addEventListener('click', () => {
+    chrome.tabs.update(tab.id, { url: `https://github.com/${owner}/${repo}` });
+  });
+  $('treeViewSection').hidden = false;
 }
 
 /* ── GitHub account (star history login) ─────────────────────────────────── */
